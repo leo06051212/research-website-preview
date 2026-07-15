@@ -10,6 +10,14 @@ class SiteContractTests(unittest.TestCase):
     def load_yaml(self, relative_path: str):
         return yaml.safe_load((ROOT / relative_path).read_text(encoding="utf-8"))
 
+    def load_workflow(self, relative_path: str):
+        path = ROOT / relative_path
+        self.assertTrue(path.is_file(), f"missing workflow: {relative_path}")
+        return yaml.load(
+            path.read_text(encoding="utf-8"),
+            Loader=yaml.BaseLoader,
+        )
+
     def test_preview_url_and_language(self):
         config = self.load_yaml("config/_default/hugo.yaml")
         self.assertEqual(
@@ -158,6 +166,74 @@ class SiteContractTests(unittest.TestCase):
         self.assertEqual(cms["media"]["input"], "static/uploads")
         self.assertEqual(cms["media"]["output"], "/research-website-preview/uploads")
         self.assertIs(cms.get("settings", {}).get("content", {}).get("merge"), True)
+
+    def test_publication_import_workflow_is_failure_gated_and_least_privilege(self):
+        self.assertFalse(
+            (ROOT / ".github/workflows/import-publications.yml").exists(),
+            "obsolete template importer must not retain write permissions",
+        )
+        workflow = self.load_workflow(".github/workflows/import-publication.yml")
+        push_paths = workflow["on"]["push"]["paths"]
+        self.assertIn("data/publication-imports/**.yml", push_paths)
+        self.assertIn("content/publications/**/index.md", push_paths)
+        self.assertNotIn("permissions", workflow)
+
+        import_job = workflow["jobs"]["import"]
+        self.assertEqual(import_job["permissions"], {"contents": "write"})
+        steps = {step["name"]: step for step in import_job["steps"] if "name" in step}
+        importer = steps["Import pending requests and synchronise reviewed publications"]
+        self.assertEqual(importer["continue-on-error"], "true")
+        self.assertEqual(importer["env"], {"IEEE_API_KEY": "${{ secrets.IEEE_API_KEY }}"})
+        self.assertIn("--all-pending", importer["run"])
+
+        commit = steps["Commit generated drafts and request statuses"]
+        self.assertEqual(commit["if"], "always()")
+        self.assertIn("git add -- data/publication-imports content/publications", commit["run"])
+        self.assertNotIn("git add .", commit["run"])
+
+        report = steps["Report importer failure after preserving status"]
+        self.assertEqual(report["if"], "steps.importer.outcome == 'failure'")
+        self.assertIn("exit 1", report["run"])
+
+        dispatch = workflow["jobs"]["dispatch"]
+        self.assertEqual(dispatch["needs"], "import")
+        self.assertEqual(dispatch["if"], "needs.import.result == 'success'")
+        self.assertEqual(dispatch["permissions"], {"actions": "write"})
+        self.assertNotIn("secrets", dispatch)
+
+    def test_deploy_defers_publication_changes_to_import_validation(self):
+        workflow = self.load_workflow(".github/workflows/deploy.yml")
+        self.assertIn("paths-ignore", workflow["on"]["push"])
+        ignored = workflow["on"]["push"]["paths-ignore"]
+        self.assertIn("data/publication-imports/**", ignored)
+        self.assertIn("content/publications/**", ignored)
+
+    def test_build_validates_managed_content_before_build_and_output_after_build(self):
+        workflow = self.load_workflow(".github/workflows/build.yml")
+        steps = workflow["jobs"]["build"]["steps"]
+        names = [step.get("name") for step in steps]
+        for required_name in [
+            "Setup Python",
+            "Validate managed publication content",
+            "Build with Hugo",
+            "Run Python contract and importer tests",
+            "Check generated site",
+        ]:
+            self.assertIn(required_name, names)
+        setup_python = names.index("Setup Python")
+        validate_content = names.index("Validate managed publication content")
+        build_hugo = names.index("Build with Hugo")
+        run_tests = names.index("Run Python contract and importer tests")
+        check_site = names.index("Check generated site")
+
+        self.assertLess(setup_python, validate_content)
+        self.assertLess(validate_content, build_hugo)
+        self.assertLess(build_hugo, run_tests)
+        self.assertLess(run_tests, check_site)
+        validation = steps[validate_content]["run"]
+        self.assertIn("sync_imported_citations", validation)
+        self.assertIn("git diff --exit-code -- content/publications", validation)
+        self.assertIn("--content content", steps[check_site]["run"])
 
 if __name__ == "__main__":
     unittest.main()

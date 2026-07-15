@@ -1,0 +1,119 @@
+from html.parser import HTMLParser
+from pathlib import Path
+from urllib.parse import urlparse
+import argparse
+
+import yaml
+
+
+class PageParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.title = False
+        self.h1 = 0
+        self.links = []
+        self.images_without_alt = []
+        self._in_title = False
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag == "title":
+            self._in_title = True
+        elif tag == "h1":
+            self.h1 += 1
+        elif tag == "a" and values.get("href"):
+            self.links.append(values["href"])
+        elif tag == "img" and "alt" not in values:
+            self.images_without_alt.append(values.get("src", "unknown"))
+
+    def handle_data(self, data):
+        if self._in_title and data.strip():
+            self.title = True
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in_title = False
+
+
+def target_for(public: Path, href: str, base_path: str) -> Path | None:
+    parsed = urlparse(href)
+    if parsed.scheme or parsed.netloc or href.startswith(("mailto:", "#")):
+        return None
+    base_path = f"/{base_path.strip('/')}/"
+    path = parsed.path
+    if path.startswith(base_path):
+        path = path[len(base_path) :]
+    elif path.startswith("/"):
+        return public / "__outside_preview_path__" / path.lstrip("/")
+    if path.rstrip("/") == "uploads/sean-ma-cv.pdf":
+        return None
+    candidate = public / path.lstrip("/")
+    if candidate.suffix:
+        return candidate
+    return candidate / "index.html"
+
+
+def _frontmatter(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---"):
+        return {}
+    parts = text.split("---", 2)
+    if len(parts) != 3:
+        return {}
+    loaded = yaml.safe_load(parts[1])
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _draft_output(public: Path, content: Path, source: Path) -> Path:
+    metadata = _frontmatter(source)
+    configured_url = metadata.get("url")
+    if isinstance(configured_url, str) and configured_url.strip():
+        return public / configured_url.strip("/") / "index.html"
+    relative = source.relative_to(content)
+    if relative.name in {"index.md", "_index.md"}:
+        output_directory = relative.parent
+    else:
+        output_directory = relative.with_suffix("")
+    return public / output_directory / "index.html"
+
+
+def check(public: Path, base_path: str, content: Path | None = None) -> list[str]:
+    errors = []
+    pages = list(public.rglob("*.html"))
+    if not pages:
+        errors.append(f"{public}: no generated HTML pages")
+    for page in pages:
+        parser = PageParser()
+        parser.feed(page.read_text(encoding="utf-8"))
+        if not parser.title:
+            errors.append(f"{page}: missing title")
+        if parser.images_without_alt:
+            errors.append(f"{page}: images without alt: {parser.images_without_alt}")
+        for href in parser.links:
+            target = target_for(public, href, base_path)
+            if target is not None and not target.exists():
+                errors.append(f"{page}: broken internal link {href}")
+    if content is not None:
+        for source in content.rglob("*.md"):
+            try:
+                metadata = _frontmatter(source)
+            except (OSError, UnicodeError, yaml.YAMLError) as error:
+                errors.append(f"{source}: cannot inspect draft status: {error}")
+                continue
+            if metadata.get("draft") is True:
+                output = _draft_output(public, content, source)
+                if output.exists():
+                    errors.append(f"{output}: draft content was generated from {source}")
+    return errors
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("public", type=Path)
+    parser.add_argument("--base-path", default="/research-website-preview/")
+    parser.add_argument("--content", type=Path)
+    args = parser.parse_args()
+    failures = check(args.public, args.base_path, args.content)
+    if failures:
+        raise SystemExit("\n".join(failures))
+    print(f"Checked {len(list(args.public.rglob('*.html')))} HTML pages")
