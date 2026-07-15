@@ -1,3 +1,7 @@
+settings:
+  content:
+    merge: true
+
 media:
   input: static/uploads
   output: /research-website-preview/uploads

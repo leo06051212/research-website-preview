@@ -91,13 +91,59 @@ class SiteContractTests(unittest.TestCase):
 
     def test_pages_cms_collections(self):
         cms = self.load_yaml(".pages.yml")
-        names = {item["name"] for item in cms["content"]}
+        collections = {item["name"]: item for item in cms["content"]}
         self.assertEqual(
-            names,
+            set(collections),
             {"publication_imports", "publications", "talks", "blog", "teaching", "profile"},
         )
+
+        expected_sources = {
+            "publication_imports": (
+                "data/publication-imports",
+                "yaml",
+                "{year}-{month}-{day}-{hour}-{minute}-{source}.yml",
+            ),
+            "publications": ("content/publications", "yaml-frontmatter", None),
+            "talks": (
+                "content/events",
+                "yaml-frontmatter",
+                "{year}-{month}-{day}-{title}.md",
+            ),
+            "blog": (
+                "content/blog",
+                "yaml-frontmatter",
+                "{year}-{month}-{day}-{title}.md",
+            ),
+            "teaching": ("content/teaching", "yaml-frontmatter", "{title}.md"),
+            "profile": ("data/authors/me.yaml", "yaml", None),
+        }
+        for name, (path, format_name, filename) in expected_sources.items():
+            collection = collections[name]
+            self.assertEqual(collection["path"], path)
+            self.assertEqual(collection["format"], format_name)
+            self.assertEqual(collection.get("filename"), filename)
+
+        publications = collections["publications"]
+        self.assertFalse(publications["operations"]["create"])
+        self.assertEqual(publications["view"]["node"]["filename"], "index.md")
+
+        for name in ["talks", "blog", "teaching"]:
+            fields = {field["name"]: field for field in collections[name]["fields"]}
+            self.assertTrue(fields["draft"]["default"])
+
+        import_fields = {
+            field["name"]: field for field in collections["publication_imports"]["fields"]
+        }
+        self.assertEqual(import_fields["status"]["default"], "pending")
+        for name in ["status", "result_path", "error"]:
+            self.assertTrue(import_fields[name]["readonly"])
+
+        profile_fields = {field["name"] for field in collections["profile"]["fields"]}
+        self.assertEqual(profile_fields, {"role", "bio", "interests"})
+
         self.assertEqual(cms["media"]["input"], "static/uploads")
         self.assertEqual(cms["media"]["output"], "/research-website-preview/uploads")
+        self.assertIs(cms.get("settings", {}).get("content", {}).get("merge"), True)
 
 if __name__ == "__main__":
     unittest.main()
