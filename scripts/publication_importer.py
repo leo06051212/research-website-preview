@@ -378,6 +378,60 @@ def atomic_write(path: Path, text: str) -> None:
     temporary.replace(path)
 
 
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("wb", delete=False, dir=path.parent) as handle:
+        handle.write(content)
+        temporary = Path(handle.name)
+    temporary.replace(path)
+
+
+def replace_file(source: Path, destination: Path) -> None:
+    source.replace(destination)
+
+
+def replace_citation_pair(
+    index: Path,
+    index_text: str,
+    citation: Path,
+    citation_text: str,
+    root: Path,
+) -> None:
+    old_index = index.read_bytes()
+    citation_existed = citation.exists()
+    old_citation = citation.read_bytes() if citation_existed else b""
+    staging = Path(tempfile.mkdtemp(prefix=".citation-sync-", dir=index.parent))
+    try:
+        resolved_staging = require_inside_repository(
+            staging, root, "Citation staging directory"
+        )
+        if resolved_staging.parent != index.parent:
+            raise ValueError("Citation staging directory must remain inside its bundle")
+        staged_index = resolved_staging / "index.md"
+        staged_citation = resolved_staging / "cite.bib"
+        expected_index = index_text.encode("utf-8")
+        expected_citation = citation_text.encode("utf-8")
+        atomic_write_bytes(staged_index, expected_index)
+        atomic_write_bytes(staged_citation, expected_citation)
+        if (
+            staged_index.read_bytes() != expected_index
+            or staged_citation.read_bytes() != expected_citation
+        ):
+            raise OSError("Citation pair staging verification failed")
+        try:
+            replace_file(staged_index, index)
+            replace_file(staged_citation, citation)
+        except Exception:
+            atomic_write_bytes(index, old_index)
+            if citation_existed:
+                atomic_write_bytes(citation, old_citation)
+            elif citation.exists():
+                citation.unlink()
+            raise
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
 def save_request(path: Path, request: dict[str, Any]) -> None:
     atomic_write(path, yaml.safe_dump(request, sort_keys=False, allow_unicode=True))
 
@@ -468,6 +522,7 @@ def citation_record_from_frontmatter(
     if (
         not isinstance(publication_types, list)
         or len(publication_types) != 1
+        or not isinstance(publication_types[0], str)
         or publication_types[0] not in PUBLICATION_TYPES
     ):
         reasons.append("Exactly one supported publication type is required")
@@ -536,12 +591,39 @@ def sync_imported_citations(root: Path) -> list[Path]:
     if not publication_directory.exists():
         return []
     synced: list[Path] = []
-    for index in sorted(publication_directory.glob("*/index.md")):
-        frontmatter, body = read_frontmatter(index)
+    errors: list[str] = []
+    for candidate_index in sorted(publication_directory.glob("*/index.md")):
+        try:
+            bundle = require_inside_repository(
+                candidate_index.parent, root, "Publication bundle"
+            )
+            if bundle.parent != publication_directory:
+                raise ValueError("Publication bundle must be directly inside publications")
+            index = require_inside_repository(
+                candidate_index, root, "Publication index"
+            )
+            citation = require_inside_repository(
+                bundle / "cite.bib", root, "Publication citation"
+            )
+            if index.parent != bundle or citation.parent != bundle:
+                raise ValueError("Publication files must remain inside their bundle")
+        except ValueError as error:
+            errors.append(f"{candidate_index}: {error}")
+            continue
+        try:
+            frontmatter, body = read_frontmatter(index)
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError):
+            # Without parseable front matter there is no trustworthy importer marker.
+            # Treat the candidate as unmanaged and leave it byte-for-byte untouched.
+            continue
         marker = frontmatter.get("publication_importer")
         if not isinstance(marker, dict) or marker.get("managed_citation") is not True:
             continue
-        record, reasons = citation_record_from_frontmatter(frontmatter)
+        try:
+            record, reasons = citation_record_from_frontmatter(frontmatter)
+        except Exception as error:
+            record = None
+            reasons = [f"Managed publication metadata shape is invalid: {type(error).__name__}"]
         requires_correction = frontmatter.get("requires_correction")
         if type(requires_correction) is not bool:
             reasons.append("requires_correction must be reviewed before publishing")
@@ -555,27 +637,37 @@ def sync_imported_citations(root: Path) -> list[Path]:
             rendered = yaml.safe_dump(
                 frontmatter, sort_keys=False, allow_unicode=True
             ).strip()
-            atomic_write(index, f"---\n{rendered}\n---{body}")
+            try:
+                atomic_write(index, f"---\n{rendered}\n---{body}")
+            except Exception as error:
+                errors.append(f"{bundle}: metadata correction failed: {error}")
             continue
         assert record is not None
         if requires_correction:
             frontmatter["draft"] = True
-            rendered = yaml.safe_dump(
-                frontmatter, sort_keys=False, allow_unicode=True
-            ).strip()
-            atomic_write(index, f"---\n{rendered}\n---{body}")
         else:
             frontmatter["correction_reasons"] = []
             frontmatter["date_precision"] = "day"
             frontmatter["publication_date_parts"] = record[
                 "publication_date_parts"
             ]
-            rendered = yaml.safe_dump(
-                frontmatter, sort_keys=False, allow_unicode=True
-            ).strip()
-            atomic_write(index, f"---\n{rendered}\n---{body}")
-        atomic_write(index.parent / "cite.bib", render_bibtex(record))
+        rendered = yaml.safe_dump(
+            frontmatter, sort_keys=False, allow_unicode=True
+        ).strip()
+        try:
+            replace_citation_pair(
+                index,
+                f"---\n{rendered}\n---{body}",
+                citation,
+                render_bibtex(record),
+                root,
+            )
+        except Exception as error:
+            errors.append(f"{bundle}: citation pair replacement failed: {error}")
+            continue
         synced.append(index.parent)
+    if errors:
+        raise RuntimeError("Citation sync failed: " + "; ".join(errors))
     return synced
 
 

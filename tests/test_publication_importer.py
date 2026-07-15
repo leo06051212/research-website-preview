@@ -500,6 +500,38 @@ class PublicationImporterTests(unittest.TestCase):
                 if publication_link.exists():
                     os.rmdir(publication_link)
 
+    def test_citation_sync_rejects_child_bundle_junction_without_external_writes(self):
+        with TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "repo"
+            publication_dir = root / "content/publications"
+            publication_dir.mkdir(parents=True)
+            outside = base / "outside-bundle"
+            outside.mkdir()
+            index_text = (
+                "---\npublication_importer: {managed_citation: true}\n"
+                "title: External title\nauthors: [me]\n"
+                "date: '2026-01-02T00:00:00Z'\n"
+                "publication_types: [article-journal]\n"
+                "publication: {name: External Journal}\n"
+                "hugoblox: {ids: {doi: 10.1109/external}}\n"
+                "draft: false\nrequires_correction: false\n---\n"
+            )
+            cite_text = "@article{external,\n  title = {External original},\n}\n"
+            outside.joinpath("index.md").write_text(index_text, encoding="utf-8")
+            outside.joinpath("cite.bib").write_text(cite_text, encoding="utf-8")
+            linked = publication_dir / "linked"
+            create_directory_link(linked, outside)
+
+            try:
+                with self.assertRaisesRegex(RuntimeError, "inside the repository"):
+                    publication_importer.sync_imported_citations(root)
+                self.assertEqual(outside.joinpath("index.md").read_text(), index_text)
+                self.assertEqual(outside.joinpath("cite.bib").read_text(), cite_text)
+            finally:
+                if linked.exists():
+                    os.rmdir(linked)
+
     def test_similar_doi_prefix_is_not_treated_as_duplicate(self):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
         fixture["message"]["DOI"] = "10.1109/example"
@@ -1025,6 +1057,7 @@ class PublicationImporterTests(unittest.TestCase):
             )
             self.assertEqual(fields["year"], "2026")
             self.assertEqual(fields["institution"], "Corrected Research Institute")
+            self.assertEqual(list(bundle.glob(".citation-sync-*")), [])
 
     def test_citation_sync_does_not_touch_legacy_bundle(self):
         with TemporaryDirectory() as temp:
@@ -1125,6 +1158,133 @@ class PublicationImporterTests(unittest.TestCase):
             self.assertTrue(frontmatter["draft"])
             self.assertTrue(frontmatter["requires_correction"])
             self.assertIn("DOI", " ".join(frontmatter["correction_reasons"]))
+
+    def test_unhashable_publication_type_shapes_are_isolated_and_forced_draft(self):
+        invalid_values = [{"bad": "type"}, ["bad"]]
+        for position, invalid_value in enumerate(invalid_values):
+            with self.subTest(position=position), TemporaryDirectory() as temp:
+                root = Path(temp)
+                bad = root / "content/publications/00-bad"
+                good = root / "content/publications/99-good"
+                bad.mkdir(parents=True)
+                good.mkdir(parents=True)
+                bad_frontmatter = {
+                    "publication_importer": {"managed_citation": True},
+                    "title": "Bad record",
+                    "authors": ["me"],
+                    "date": "2026-01-02T00:00:00Z",
+                    "publication_types": [invalid_value],
+                    "publication": {"name": "Bad Venue"},
+                    "hugoblox": {"ids": {"doi": "10.1109/bad"}},
+                    "draft": False,
+                    "requires_correction": False,
+                }
+                bad.joinpath("index.md").write_text(
+                    "---\n"
+                    + yaml.safe_dump(bad_frontmatter, sort_keys=False)
+                    + "---\n",
+                    encoding="utf-8",
+                )
+                good.joinpath("index.md").write_text(
+                    "---\npublication_importer: {managed_citation: true}\n"
+                    "title: Later valid title\nauthors: [me]\n"
+                    "date: '2026-02-03T00:00:00Z'\n"
+                    "publication_types: [article-journal]\n"
+                    "publication: {name: Later Journal}\n"
+                    "hugoblox: {ids: {doi: 10.1109/later}}\n"
+                    "draft: false\nrequires_correction: false\n---\n",
+                    encoding="utf-8",
+                )
+                good.joinpath("cite.bib").write_text("stale\n", encoding="utf-8")
+
+                publication_importer.sync_imported_citations(root)
+
+                updated_bad = yaml.safe_load(
+                    bad.joinpath("index.md").read_text().split("---", 2)[1]
+                )
+                self.assertTrue(updated_bad["draft"])
+                self.assertTrue(updated_bad["requires_correction"])
+                later_fields = parse_generated_bibtex(
+                    good.joinpath("cite.bib").read_text()
+                )[2]
+                self.assertEqual(later_fields["title"], "Later valid title")
+
+    def test_malformed_unmarked_legacy_does_not_block_later_managed_sync(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            legacy = root / "content/publications/00-legacy"
+            managed = root / "content/publications/99-managed"
+            legacy.mkdir(parents=True)
+            managed.mkdir(parents=True)
+            legacy_text = "---\ntitle: [unterminated\n---\nlegacy body\n"
+            legacy_cite = "legacy citation bytes\n"
+            legacy.joinpath("index.md").write_text(legacy_text, encoding="utf-8")
+            legacy.joinpath("cite.bib").write_text(legacy_cite, encoding="utf-8")
+            managed.joinpath("index.md").write_text(
+                "---\npublication_importer: {managed_citation: true}\n"
+                "title: Managed after legacy\nauthors: [me]\n"
+                "date: '2026-03-04T00:00:00Z'\n"
+                "publication_types: [article-journal]\n"
+                "publication: {name: Managed Journal}\n"
+                "hugoblox: {ids: {doi: 10.1109/managed}}\n"
+                "draft: false\nrequires_correction: false\n---\n",
+                encoding="utf-8",
+            )
+            managed.joinpath("cite.bib").write_text("stale\n", encoding="utf-8")
+
+            publication_importer.sync_imported_citations(root)
+
+            self.assertEqual(legacy.joinpath("index.md").read_text(), legacy_text)
+            self.assertEqual(legacy.joinpath("cite.bib").read_text(), legacy_cite)
+            fields = parse_generated_bibtex(managed.joinpath("cite.bib").read_text())[2]
+            self.assertEqual(fields["title"], "Managed after legacy")
+
+    def test_citation_pair_rolls_back_on_each_final_replacement_failure(self):
+        for failed_name in ("index.md", "cite.bib"):
+            with self.subTest(failed_name=failed_name), TemporaryDirectory() as temp:
+                root = Path(temp)
+                bundle = root / "content/publications/managed"
+                bundle.mkdir(parents=True)
+                old_index = (
+                    "---\npublication_importer: {managed_citation: true}\n"
+                    "title: Transaction title\nauthors: [me]\n"
+                    "date: '2026-04-05T00:00:00Z'\n"
+                    "publication_types: [article-journal]\n"
+                    "publication: {name: Transaction Journal}\n"
+                    "hugoblox: {ids: {doi: 10.1109/transaction}}\n"
+                    "draft: false\nrequires_correction: false\n"
+                    "correction_reasons: [stale reason]\n"
+                    "publication_date_parts: []\ndate_precision: missing\n"
+                    "---\nbody\n"
+                )
+                old_citation = "@article{old,\n  title = {Old citation},\n}\n"
+                index = bundle / "index.md"
+                citation = bundle / "cite.bib"
+                index.write_text(old_index, encoding="utf-8")
+                citation.write_text(old_citation, encoding="utf-8")
+                old_index_bytes = index.read_bytes()
+                old_citation_bytes = citation.read_bytes()
+                failed = False
+
+                def fail_once(source, destination):
+                    nonlocal failed
+                    if destination.name == failed_name and not failed:
+                        failed = True
+                        raise OSError(f"injected {failed_name} replacement failure")
+                    source.replace(destination)
+
+                with patch.object(
+                    publication_importer,
+                    "replace_file",
+                    fail_once,
+                    create=True,
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "replacement failure"):
+                        publication_importer.sync_imported_citations(root)
+
+                self.assertEqual(index.read_bytes(), old_index_bytes)
+                self.assertEqual(citation.read_bytes(), old_citation_bytes)
+                self.assertEqual(list(bundle.glob(".citation-sync-*")), [])
 
         with patch.object(
             sys,
