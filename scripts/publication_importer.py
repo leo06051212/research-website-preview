@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import time
 import unicodedata
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date as calendar_date
 from datetime import datetime, timezone
@@ -288,21 +289,49 @@ def record_from_crossref(
     return record
 
 
+def iter_publication_indexes(
+    root: Path,
+    on_error: Callable[[Path, Exception], None] | None = None,
+) -> Iterator[tuple[Path, Path]]:
+    root = root.resolve()
+    publication_directory = validate_publication_directory(root)
+    if not publication_directory.exists():
+        return
+    for candidate_index in sorted(publication_directory.glob("*/index.md")):
+        try:
+            bundle = require_inside_repository(
+                candidate_index.parent,
+                publication_directory,
+                "Publication bundle",
+            )
+            if bundle.parent != publication_directory:
+                raise ValueError("Publication bundle must be directly inside publications")
+            index = require_inside_repository(
+                candidate_index, bundle, "Publication index"
+            )
+            if index.parent != bundle:
+                raise ValueError("Publication index must remain inside its bundle")
+        except (OSError, RuntimeError, ValueError) as error:
+            if on_error is not None:
+                on_error(candidate_index, error)
+            continue
+        yield bundle, index
+
+
 def duplicate_path(root: Path, doi: str) -> Path | None:
     normalised = doi.lower()
-    for index in (root / "content/publications").glob("*/index.md"):
-        text = index.read_text(encoding="utf-8")
-        parts = text.split("---", 2)
-        if len(parts) < 3:
+    for bundle, index in iter_publication_indexes(root):
+        try:
+            frontmatter, _ = read_frontmatter(index)
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError):
             continue
         try:
-            frontmatter = yaml.safe_load(parts[1]) or {}
             existing_doi = frontmatter.get("hugoblox", {}).get("ids", {}).get("doi", "")
             existing_normalised = normalize_source(str(existing_doi)).value
         except (AttributeError, TypeError, ValueError, yaml.YAMLError):
             continue
         if normalised == existing_normalised:
-            return index.parent
+            return bundle
     return None
 
 
@@ -505,6 +534,8 @@ def citation_record_from_frontmatter(
     ):
         reasons.append("Publication authors must be completed before publishing")
         authors = []
+    else:
+        authors = [author.strip() for author in authors]
 
     raw_date = frontmatter.get("date")
     parsed_date: datetime | None = None
@@ -592,23 +623,18 @@ def sync_imported_citations(root: Path) -> list[Path]:
         return []
     synced: list[Path] = []
     errors: list[str] = []
-    for candidate_index in sorted(publication_directory.glob("*/index.md")):
+    def collect_path_error(candidate: Path, error: Exception) -> None:
+        errors.append(f"{candidate}: {error}")
+
+    for bundle, index in iter_publication_indexes(root, collect_path_error):
         try:
-            bundle = require_inside_repository(
-                candidate_index.parent, root, "Publication bundle"
-            )
-            if bundle.parent != publication_directory:
-                raise ValueError("Publication bundle must be directly inside publications")
-            index = require_inside_repository(
-                candidate_index, root, "Publication index"
-            )
             citation = require_inside_repository(
-                bundle / "cite.bib", root, "Publication citation"
+                bundle / "cite.bib", bundle, "Publication citation"
             )
-            if index.parent != bundle or citation.parent != bundle:
-                raise ValueError("Publication files must remain inside their bundle")
-        except ValueError as error:
-            errors.append(f"{candidate_index}: {error}")
+            if citation.parent != bundle:
+                raise ValueError("Publication citation must remain inside its bundle")
+        except (OSError, RuntimeError, ValueError) as error:
+            errors.append(f"{index}: {error}")
             continue
         try:
             frontmatter, body = read_frontmatter(index)
@@ -643,6 +669,7 @@ def sync_imported_citations(root: Path) -> list[Path]:
                 errors.append(f"{bundle}: metadata correction failed: {error}")
             continue
         assert record is not None
+        frontmatter["authors"] = record["authors"]
         if requires_correction:
             frontmatter["draft"] = True
         else:

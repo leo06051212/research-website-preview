@@ -187,6 +187,112 @@ class PublicationImporterTests(unittest.TestCase):
             updated = yaml.safe_load(request.read_text(encoding="utf-8"))
             self.assertEqual(updated["result_path"], "content/publications/existing")
 
+    def test_duplicate_scan_ignores_child_bundle_junction_outside_repository(self):
+        fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        with TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "repo"
+            publication_dir = root / "content/publications"
+            request_dir = root / "data/publication-imports"
+            publication_dir.mkdir(parents=True)
+            request_dir.mkdir(parents=True)
+            outside = base / "outside-bundle"
+            outside.mkdir()
+            external_index = (
+                "---\nhugoblox:\n  ids:\n"
+                "    doi: 10.1109/mcsoc67473.2025.00122\n---\nexternal\n"
+            )
+            outside.joinpath("index.md").write_text(external_index, encoding="utf-8")
+            linked = publication_dir / "linked"
+            create_directory_link(linked, outside)
+            request = request_dir / "paper.yml"
+            request.write_text(
+                "source: 10.1109/MCSoC67473.2025.00122\n"
+                "publication_type: paper-conference\nstatus: pending\n",
+                encoding="utf-8",
+            )
+
+            try:
+                result = process_request(request, root, lambda _: fixture)
+                self.assertEqual(result.status, "processed")
+                self.assertNotEqual(result.result_path, "content/publications/linked")
+                self.assertEqual(
+                    outside.joinpath("index.md").read_text(encoding="utf-8"),
+                    external_index,
+                )
+            finally:
+                if linked.exists():
+                    os.rmdir(linked)
+
+    def test_duplicate_scan_ignores_external_index_link_with_junction_fallback(self):
+        fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        with TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "repo"
+            bundle = root / "content/publications/linked-index"
+            request_dir = root / "data/publication-imports"
+            bundle.mkdir(parents=True)
+            request_dir.mkdir(parents=True)
+            outside_index = base / "external-index.md"
+            external_index = (
+                "---\nhugoblox:\n  ids:\n"
+                "    doi: 10.1109/mcsoc67473.2025.00122\n---\nexternal\n"
+            )
+            outside_index.write_text(external_index, encoding="utf-8")
+            linked_index = bundle / "index.md"
+            bundle_is_link = False
+            try:
+                linked_index.symlink_to(outside_index)
+            except OSError:
+                os.rmdir(bundle)
+                outside_bundle = base / "external-bundle"
+                outside_bundle.mkdir()
+                outside_index = outside_bundle / "index.md"
+                outside_index.write_text(external_index, encoding="utf-8")
+                create_directory_link(bundle, outside_bundle)
+                bundle_is_link = True
+            request = request_dir / "paper.yml"
+            request.write_text(
+                "source: 10.1109/MCSoC67473.2025.00122\n"
+                "publication_type: paper-conference\nstatus: pending\n",
+                encoding="utf-8",
+            )
+
+            try:
+                result = process_request(request, root, lambda _: fixture)
+
+                self.assertEqual(result.status, "processed")
+                self.assertEqual(outside_index.read_text(encoding="utf-8"), external_index)
+            finally:
+                if bundle_is_link and bundle.exists():
+                    os.rmdir(bundle)
+
+    def test_duplicate_scan_skips_unreadable_non_utf8_and_malformed_indexes(self):
+        fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        for bad_kind in ("unreadable", "non-utf8", "malformed"):
+            with self.subTest(bad_kind=bad_kind), TemporaryDirectory() as temp:
+                root = Path(temp)
+                bad_index = root / "content/publications/bad/index.md"
+                bad_index.parent.mkdir(parents=True)
+                if bad_kind == "unreadable":
+                    bad_index.mkdir()
+                elif bad_kind == "non-utf8":
+                    bad_index.write_bytes(b"\xff\xfe\x00")
+                else:
+                    bad_index.write_text("---\ntitle: [unterminated\n---\n")
+                request_dir = root / "data/publication-imports"
+                request_dir.mkdir(parents=True)
+                request = request_dir / "paper.yml"
+                request.write_text(
+                    "source: 10.1109/MCSoC67473.2025.00122\n"
+                    "publication_type: paper-conference\nstatus: pending\n",
+                    encoding="utf-8",
+                )
+
+                result = process_request(request, root, lambda _: fixture)
+
+                self.assertEqual(result.status, "processed")
+
     def test_invalid_identifier_is_recorded_as_failed(self):
         with self.assertRaisesRegex(ValueError, "DOI or IEEE Xplore"):
             normalize_source("not a publication identifier")
@@ -1238,6 +1344,32 @@ class PublicationImporterTests(unittest.TestCase):
             self.assertEqual(legacy.joinpath("cite.bib").read_text(), legacy_cite)
             fields = parse_generated_bibtex(managed.joinpath("cite.bib").read_text())[2]
             self.assertEqual(fields["title"], "Managed after legacy")
+
+    def test_citation_sync_strips_authors_and_restores_spaced_owner_id(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            bundle = root / "content/publications/managed"
+            bundle.mkdir(parents=True)
+            bundle.joinpath("index.md").write_text(
+                "---\npublication_importer: {managed_citation: true}\n"
+                "title: Normalized authors\nauthors: [' me ', ' Alice ']\n"
+                "date: '2026-05-06T00:00:00Z'\n"
+                "publication_types: [article-journal]\n"
+                "publication: {name: Identity Journal}\n"
+                "hugoblox: {ids: {doi: 10.1109/identity}}\n"
+                "draft: false\nrequires_correction: false\n---\n",
+                encoding="utf-8",
+            )
+            bundle.joinpath("cite.bib").write_text("stale\n", encoding="utf-8")
+
+            publication_importer.sync_imported_citations(root)
+
+            frontmatter = yaml.safe_load(
+                bundle.joinpath("index.md").read_text().split("---", 2)[1]
+            )
+            fields = parse_generated_bibtex(bundle.joinpath("cite.bib").read_text())[2]
+            self.assertEqual(frontmatter["authors"], ["me", "Alice"])
+            self.assertEqual(fields["author"], "Sean Longyu Ma and Alice")
 
     def test_citation_pair_rolls_back_on_each_final_replacement_failure(self):
         for failed_name in ("index.md", "cite.bib"):
