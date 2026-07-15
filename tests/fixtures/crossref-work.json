@@ -1,0 +1,18 @@
+{
+  "status": "ok",
+  "message": {
+    "DOI": "10.1109/MCSOC67473.2025.00122",
+    "title": ["Adaptive Gradual Quantization with a Custom RISC-V SIMD Accelerator"],
+    "author": [
+      {"given": "Zongcheng", "family": "Yue"},
+      {"given": "Dongwei", "family": "Yan"},
+      {"given": "Sean Longyu", "family": "Ma"},
+      {"given": "Chiu-Wing", "family": "Sham"}
+    ],
+    "container-title": ["2025 IEEE 18th International Symposium on Embedded Multicore/Many-core Systems-on-Chip (MCSoC)"],
+    "published-print": {"date-parts": [[2025, 12, 15]]},
+    "page": "768-771",
+    "abstract": "Neural network quantization and custom RISC-V SIMD acceleration for efficient inference.",
+    "URL": "https://doi.org/10.1109/MCSOC67473.2025.00122"
+  }
+}
