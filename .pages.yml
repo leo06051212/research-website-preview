@@ -108,10 +108,29 @@ content:
             type: string
           - name: pages
             type: string
+          - name: article_number
+            label: Article number
+            type: string
+          - name: publisher
+            type: string
       - name: abstract
         type: text
       - name: summary
         type: text
+      - name: requires_correction
+        label: Metadata requires correction before publishing
+        type: boolean
+      - name: correction_reasons
+        type: string
+        list: true
+        readonly: true
+      - name: date_precision
+        type: string
+        readonly: true
+      - name: publication_date_parts
+        type: number
+        list: true
+        readonly: true
       - name: hugoblox
         type: object
         fields:

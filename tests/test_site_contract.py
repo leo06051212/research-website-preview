@@ -126,6 +126,20 @@ class SiteContractTests(unittest.TestCase):
         publications = collections["publications"]
         self.assertFalse(publications["operations"]["create"])
         self.assertEqual(publications["view"]["node"]["filename"], "index.md")
+        publication_fields = {
+            field["name"]: field for field in publications["fields"]
+        }
+        self.assertIn("requires_correction", publication_fields)
+        self.assertNotIn("readonly", publication_fields["requires_correction"])
+        for name in ["correction_reasons", "date_precision", "publication_date_parts"]:
+            self.assertIn(name, publication_fields)
+            self.assertTrue(publication_fields[name]["readonly"])
+        metadata_fields = {
+            field["name"]
+            for field in publication_fields["publication"]["fields"]
+        }
+        self.assertIn("publisher", metadata_fields)
+        self.assertIn("article_number", metadata_fields)
 
         for name in ["talks", "blog", "teaching"]:
             fields = {field["name"]: field for field in collections[name]["fields"]}

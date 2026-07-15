@@ -9,17 +9,26 @@ import tempfile
 import time
 import unicodedata
 from dataclasses import dataclass
+from datetime import date as calendar_date
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import URLError
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urlsplit
 from urllib.request import Request, urlopen
 
 import yaml
 
-DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
-IEEE_RE = re.compile(r"ieeexplore\.ieee\.org/(?:document/)?(\d+)", re.IGNORECASE)
+DOI_RE = re.compile(r"10\.\d{4,9}/\S+", re.IGNORECASE)
+IEEE_PATH_RE = re.compile(r"^/document/(\d+)/?$", re.IGNORECASE)
+PUBLICATION_TYPES = {
+    "article-journal",
+    "paper-conference",
+    "chapter",
+    "report",
+    "manuscript",
+}
+REQUEST_STATUSES = {"pending", "processed", "duplicate", "failed"}
 
 
 @dataclass(frozen=True)
@@ -36,13 +45,24 @@ class ProcessResult:
 
 
 def normalize_source(source: str) -> Identifier:
-    cleaned = unquote(source.strip())
-    doi = DOI_RE.search(cleaned)
-    if doi:
-        return Identifier("doi", doi.group(0).rstrip(".,;)}]").lower())
-    ieee = IEEE_RE.search(cleaned)
-    if ieee:
-        return Identifier("ieee", ieee.group(1))
+    cleaned = source.strip()
+    parsed = urlsplit(cleaned)
+    if parsed.scheme or parsed.netloc:
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("Enter a valid DOI or IEEE Xplore URL")
+        hostname = parsed.hostname.lower().rstrip(".")
+        if hostname in {"doi.org", "dx.doi.org"}:
+            doi = unquote(parsed.path.lstrip("/"))
+            if DOI_RE.fullmatch(doi):
+                return Identifier("doi", doi.lower())
+        elif hostname == "ieeexplore.ieee.org":
+            ieee = IEEE_PATH_RE.fullmatch(parsed.path)
+            if ieee:
+                return Identifier("ieee", ieee.group(1))
+        raise ValueError("Enter a valid DOI or IEEE Xplore URL")
+    doi = unquote(cleaned)
+    if DOI_RE.fullmatch(doi):
+        return Identifier("doi", doi.lower())
     raise ValueError("Enter a valid DOI or IEEE Xplore URL")
 
 
@@ -93,12 +113,88 @@ def slugify(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", ascii_value.lower()).strip("-")[:90]
 
 
+def validate_request(request: dict[str, Any]) -> None:
+    source = request.get("source")
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("source must be a non-empty string")
+    status = request.get("status", "pending")
+    if not isinstance(status, str) or status not in REQUEST_STATUSES:
+        raise ValueError("status must be one of: pending, processed, duplicate, failed")
+    publication_type = request.get("publication_type", "article-journal")
+    if not isinstance(publication_type, str) or publication_type not in PUBLICATION_TYPES:
+        raise ValueError(
+            "publication_type must be one of: " + ", ".join(sorted(PUBLICATION_TYPES))
+        )
+    if "featured" in request and type(request["featured"]) is not bool:
+        raise ValueError("featured must be a boolean")
+    for field in ("pdf_url", "code_url", "dataset_url", "slides_url"):
+        if field in request and not isinstance(request[field], str):
+            raise ValueError(f"{field} must be a string")
+
+
+def crossref_date_parts(message: dict[str, Any]) -> list[int]:
+    date_block = (
+        message.get("published-print")
+        or message.get("published-online")
+        or message.get("issued")
+    )
+    if date_block is None:
+        return []
+    if not isinstance(date_block, dict):
+        raise ValueError("Crossref publication date must be an object")
+    groups = date_block.get("date-parts")
+    if not isinstance(groups, list) or not groups or not isinstance(groups[0], list):
+        raise ValueError("Crossref publication date-parts must contain a list")
+    parts = groups[0]
+    if not 1 <= len(parts) <= 3 or any(type(part) is not int for part in parts):
+        raise ValueError("Crossref publication date must contain one to three integers")
+    try:
+        calendar_date(
+            parts[0],
+            parts[1] if len(parts) > 1 else 1,
+            parts[2] if len(parts) > 2 else 1,
+        )
+    except ValueError as error:
+        raise ValueError(f"Invalid Crossref publication date: {error}") from error
+    return parts
+
+
+def crossref_scalar(message: dict[str, Any], field: str) -> str:
+    value = message.get(field, "")
+    if value is None:
+        return ""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise ValueError(f"Crossref {field} must be a scalar")
+    return str(value)
+
+
 def record_from_crossref(
     message: dict[str, Any], request: dict[str, Any]
 ) -> dict[str, Any]:
-    title = (message.get("title") or [""])[0].strip()
+    if not isinstance(message, dict):
+        raise ValueError("Crossref message must be a mapping")
+    doi_value = message.get("DOI")
+    if not isinstance(doi_value, str):
+        raise ValueError("Crossref DOI must be a string")
+    doi = normalize_source(doi_value).value
+    title_values = message.get("title", [])
+    if not isinstance(title_values, list) or any(
+        not isinstance(value, str) for value in title_values
+    ):
+        raise ValueError("Crossref title must be a list of strings")
+    title = title_values[0].strip() if title_values else ""
+    author_values = message.get("author", [])
+    if not isinstance(author_values, list):
+        raise ValueError("Crossref author must be a list")
     authors = []
-    for author in message.get("author", []):
+    for author in author_values:
+        if not isinstance(author, dict):
+            raise ValueError("Each Crossref author must be an object")
+        if any(
+            key in author and not isinstance(author[key], str)
+            for key in ("given", "family")
+        ):
+            raise ValueError("Crossref author names must be strings")
         name = " ".join(
             part
             for part in [author.get("given", ""), author.get("family", "")]
@@ -106,45 +202,78 @@ def record_from_crossref(
         ).strip()
         if name:
             authors.append("me" if name.casefold() == "sean longyu ma" else name)
-    date_parts = (
-        message.get("published-print")
-        or message.get("published-online")
-        or message.get("issued")
-        or {}
-    ).get("date-parts", [[]])[0]
-    if not title or not authors or not date_parts:
-        raise ValueError("Crossref metadata is missing title, authors, or publication date")
-    year = int(date_parts[0])
-    month = int(date_parts[1]) if len(date_parts) > 1 else 1
-    day = int(date_parts[2]) if len(date_parts) > 2 else 1
+    date_parts = crossref_date_parts(message)
+    correction_reasons = []
+    if not title:
+        correction_reasons.append("Crossref metadata is missing the publication title")
+    if not authors:
+        correction_reasons.append("Crossref metadata is missing usable authors")
+    if not date_parts:
+        correction_reasons.append("Crossref metadata is missing the publication date")
+        date_precision = "missing"
+    elif len(date_parts) == 1:
+        correction_reasons.append("Crossref supplied only a publication year")
+        date_precision = "year"
+    elif len(date_parts) == 2:
+        correction_reasons.append("Crossref supplied only a publication year and month")
+        date_precision = "month"
+    else:
+        date_precision = "day"
     links = []
     for kind in ["pdf", "code", "dataset", "slides"]:
         value = str(request.get(f"{kind}_url", "")).strip()
         if value:
             links.append({"type": kind, "url": value})
-    source_url = str(message.get("URL", "")).strip()
+    source_value = message.get("URL", "")
+    if source_value is None:
+        source_value = ""
+    if not isinstance(source_value, str):
+        raise ValueError("Crossref URL must be a string")
+    source_url = source_value.strip()
     if source_url:
         links.append({"type": "source", "url": source_url})
-    return {
-        "title": title,
-        "authors": authors,
-        "date": f"{year:04d}-{month:02d}-{day:02d}T00:00:00Z",
+    container_titles = message.get("container-title", [])
+    if not isinstance(container_titles, list) or any(
+        not isinstance(value, str) for value in container_titles
+    ):
+        raise ValueError("Crossref container-title must be a list of strings")
+    abstract = message.get("abstract", "")
+    if abstract is None:
+        abstract = ""
+    if not isinstance(abstract, str):
+        raise ValueError("Crossref abstract must be a string")
+    record = {
         "publication_types": [request.get("publication_type", "article-journal")],
         "publication": {
-            "name": (message.get("container-title") or [""])[0],
-            "volume": str(message.get("volume", "")),
-            "issue": str(message.get("issue", "")),
-            "pages": str(message.get("page", "")),
+            "name": container_titles[0] if container_titles else "",
+            "volume": crossref_scalar(message, "volume"),
+            "issue": crossref_scalar(message, "issue"),
+            "pages": crossref_scalar(message, "page"),
+            "article_number": crossref_scalar(message, "article-number"),
+            "publisher": crossref_scalar(message, "publisher"),
         },
-        "abstract": re.sub(r"<[^>]+>", "", str(message.get("abstract", ""))).strip(),
+        "abstract": re.sub(r"<[^>]+>", "", abstract).strip(),
         "summary": "",
-        "featured": bool(request.get("featured", False)),
+        "featured": request.get("featured", False),
         "draft": True,
-        "hugoblox": {"ids": {"doi": str(message["DOI"]).lower()}},
+        "requires_correction": bool(correction_reasons),
+        "correction_reasons": correction_reasons,
+        "date_precision": date_precision,
+        "publication_date_parts": date_parts,
+        "hugoblox": {"ids": {"doi": doi}},
         "links": links,
         "projects": [],
         "slides": "",
     }
+    if title:
+        record["title"] = title
+    if authors:
+        record["authors"] = authors
+    if len(date_parts) == 3:
+        record["date"] = (
+            f"{date_parts[0]:04d}-{date_parts[1]:02d}-{date_parts[2]:02d}T00:00:00Z"
+        )
+    return record
 
 
 def duplicate_path(root: Path, doi: str) -> Path | None:
@@ -165,31 +294,64 @@ def duplicate_path(root: Path, doi: str) -> Path | None:
     return None
 
 
+def bibtex_escape(value: Any) -> str:
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "%": r"\%",
+        "&": r"\&",
+        "_": r"\_",
+        "#": r"\#",
+        "$": r"\$",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    return "".join(replacements.get(character, character) for character in str(value))
+
+
 def render_bibtex(record: dict[str, Any]) -> str:
     doi = record["hugoblox"]["ids"]["doi"]
-    year = record["date"][:4]
+    date_parts = record.get("publication_date_parts", [])
+    year = str(date_parts[0]) if date_parts else ""
+    authors = record.get("authors", [])
+    title = record.get("title", "")
+    first_author = authors[0].split()[-1] if authors else "import"
     key = (
-        f"{slugify(record['authors'][0].split()[-1])}{year}"
-        f"{slugify(record['title']).split('-')[0]}"
+        f"{slugify(first_author)}{year}"
+        f"{slugify(title).split('-')[0] if title else 'record'}"
     )
     venue = record["publication"]["name"]
-    entry_type = (
-        "inproceedings"
-        if record["publication_types"][0] == "paper-conference"
-        else "article"
-    )
+    publication_type = record["publication_types"][0]
+    entry_type, venue_field = {
+        "article-journal": ("article", "journal"),
+        "paper-conference": ("inproceedings", "booktitle"),
+        "chapter": ("incollection", "booktitle"),
+        "report": ("techreport", "institution"),
+        "manuscript": ("unpublished", "note"),
+    }[publication_type]
+    publication = record["publication"]
     fields = {
-        "title": record["title"],
+        "title": title,
         "author": " and ".join(
-            "Sean Longyu Ma" if name == "me" else name for name in record["authors"]
+            "Sean Longyu Ma" if name == "me" else name for name in authors
         ),
-        "booktitle" if entry_type == "inproceedings" else "journal": venue,
+        venue_field: venue,
         "year": year,
+        "volume": publication.get("volume", ""),
+        "number": publication.get("issue", ""),
+        "pages": publication.get("pages", ""),
+        "eid": publication.get("article_number", ""),
+        "publisher": publication.get("publisher", ""),
         "doi": doi,
         "url": f"https://doi.org/{doi}",
     }
     lines = [f"@{entry_type}{{{key},"]
-    lines.extend(f"  {name} = {{{value}}}," for name, value in fields.items() if value)
+    lines.extend(
+        f"  {name} = {{{bibtex_escape(value)}}},"
+        for name, value in fields.items()
+        if value
+    )
     lines.append("}")
     return "\n".join(lines) + "\n"
 
@@ -208,20 +370,40 @@ def save_request(path: Path, request: dict[str, Any]) -> None:
     atomic_write(path, yaml.safe_dump(request, sort_keys=False, allow_unicode=True))
 
 
+def validate_request_path(path: Path, root: Path) -> Path:
+    if ".." in path.parts:
+        raise ValueError("Publication import request path must not contain parent traversal")
+    resolved_root = root.resolve()
+    import_directory = (resolved_root / "data/publication-imports").resolve()
+    resolved_path = path.resolve(strict=True)
+    if resolved_path.suffix != ".yml" or resolved_path.parent != import_directory:
+        raise ValueError(
+            "Publication import request must be a .yml file directly under "
+            "data/publication-imports"
+        )
+    return resolved_path
+
+
 def process_request(
     path: Path,
     root: Path,
     fetch_json: Callable[[str], dict[str, Any]] = fetch_json_url,
 ) -> ProcessResult:
-    request = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    current_status = str(request.get("status", "pending"))
-    if current_status != "pending":
-        return ProcessResult(
-            current_status,
-            str(request.get("result_path", "")),
-            str(request.get("error", "")),
-        )
+    path = validate_request_path(path, root)
+    loaded_request = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(loaded_request, dict):
+        raise ValueError("Publication import request must be a YAML mapping")
+    request = loaded_request
+    created_bundle: Path | None = None
     try:
+        validate_request(request)
+        current_status = str(request.get("status", "pending"))
+        if current_status != "pending":
+            return ProcessResult(
+                current_status,
+                str(request.get("result_path", "")),
+                str(request.get("error", "")),
+            )
         identifier = resolve_ieee(
             normalize_source(str(request.get("source", ""))), fetch_json
         )
@@ -239,14 +421,24 @@ def process_request(
             )
         url = f"https://api.crossref.org/works/{quote(identifier.value, safe='')}"
         response = fetch_json(url)
+        if not isinstance(response, dict):
+            raise ValueError("Crossref response must be a mapping")
         message = response.get("message", response)
-        returned_doi = str(message.get("DOI", "")).strip()
+        if not isinstance(message, dict):
+            raise ValueError("Crossref message must be a mapping")
+        returned_value = message.get("DOI", "")
+        if not isinstance(returned_value, str):
+            raise ValueError("Crossref DOI must be a string")
+        returned_doi = returned_value.strip()
         if not returned_doi:
             raise ValueError("Crossref metadata is missing DOI")
         if normalize_source(returned_doi).value != identifier.value:
             raise ValueError("Crossref DOI does not match requested DOI")
         record = record_from_crossref(message, request)
-        slug = slugify(f"{record['date'][:4]}-{record['title']}")
+        parts = record.get("publication_date_parts", [])
+        slug_year = str(parts[0]) if parts else "undated"
+        slug_identity = record.get("title") or identifier.value
+        slug = slugify(f"{slug_year}-{slug_identity}")
         bundle = root / "content/publications" / slug
         if bundle.exists():
             raise FileExistsError(f"Publication bundle already exists: {bundle.name}")
@@ -258,6 +450,7 @@ def process_request(
             atomic_write(staging / "index.md", f"---\n{frontmatter}\n---\n")
             atomic_write(staging / "cite.bib", citation)
             staging.replace(bundle)
+            created_bundle = bundle
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
@@ -271,6 +464,8 @@ def process_request(
         save_request(path, request)
         return ProcessResult("processed", relative)
     except Exception as error:
+        if created_bundle is not None and created_bundle.exists():
+            shutil.rmtree(created_bundle)
         request.update(status="failed", result_path="", error=str(error))
         save_request(path, request)
         raise
@@ -279,20 +474,18 @@ def process_request(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    parser.add_argument("--all-pending", action="store_true")
-    parser.add_argument("request", nargs="?", type=Path)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--all-pending", action="store_true")
+    mode.add_argument("request", nargs="?", type=Path)
     args = parser.parse_args()
     root = args.repo_root.resolve()
     paths = (
         sorted((root / "data/publication-imports").glob("*.yml"))
         if args.all_pending
-        else [args.request.resolve()]
+        else [args.request]
     )
     failures = 0
     for path in paths:
-        request = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        if request.get("status", "pending") != "pending":
-            continue
         try:
             process_request(path, root)
         except Exception as error:
