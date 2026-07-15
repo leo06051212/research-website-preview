@@ -7,6 +7,9 @@ authors:
 tags:
 - Teaching
 draft: true
+teaching_type: Postgraduate supervision
+venue: The University of Auckland, School of Computer Science
+location: Auckland, New Zealand
 ---
 
 Doctor of Philosophy in Computer Science

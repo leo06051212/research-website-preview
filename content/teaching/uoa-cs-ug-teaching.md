@@ -7,6 +7,9 @@ authors:
 tags:
 - Teaching
 draft: true
+teaching_type: Undergraduate course
+venue: The University of Auckland, School of Computer Science
+location: Auckland, New Zealand
 ---
 
 COMPSCI 110 Introduction to Computer Systems (2024S2)

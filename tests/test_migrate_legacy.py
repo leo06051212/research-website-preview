@@ -5,6 +5,7 @@ import unittest
 from scripts.migrate_legacy import (
     extract_authors,
     extract_bibtex,
+    migrate_generic,
     migrate_publication,
     migrate_talk,
     publication_type,
@@ -101,8 +102,31 @@ and Ma, Sean Longyu"}'''
             destination = migrate_talk(FIXTURES / "talk.md", Path(temp))
             text = destination.read_text(encoding="utf-8")
             self.assertIn("event_name: 2026 IEEE International Symposium", text)
+            self.assertIn("event: 2026 IEEE International Symposium", text)
+            self.assertIn("venue: Shanghai International Convention Center", text)
             self.assertIn("location: Shanghai, China", text)
             self.assertIn("authors:\n- me", text)
+
+    def test_teaching_preserves_type_venue_and_location(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "teaching.md"
+            source.write_text(
+                "---\n"
+                "title: UoA Postgraduate Supervision experience\n"
+                "type: Postgraduate supervision\n"
+                "venue: The University of Auckland, School of Computer Science\n"
+                "date: 2023-08-21\n"
+                "location: Auckland, New Zealand\n"
+                "---\n\nSupervision details.\n",
+                encoding="utf-8",
+            )
+            destination = migrate_generic(source, root / "output", "Teaching")
+            text = destination.read_text(encoding="utf-8")
+            self.assertIn("teaching_type: Postgraduate supervision", text)
+            self.assertIn("venue: The University of Auckland, School of Computer Science", text)
+            self.assertIn("location: Auckland, New Zealand", text)
+            self.assertIn("draft: true", text)
 
 
 if __name__ == "__main__":

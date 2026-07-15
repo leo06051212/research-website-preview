@@ -158,6 +158,8 @@ def migrate_talk(source: Path, output_root: Path) -> Path:
         "title": metadata["title"],
         "date": f"{metadata['date']}T00:00:00Z",
         "event_name": metadata["title"],
+        "event": metadata["title"],
+        "venue": str(metadata.get("venue", "")),
         "location": str(metadata.get("location", metadata.get("venue", ""))),
         "summary": body.splitlines()[0] if body else "",
         "abstract": body,
@@ -183,6 +185,13 @@ def migrate_generic(source: Path, output_root: Path, kind: str) -> Path:
         "tags": metadata.get("tags", [kind]),
         "draft": True,
     }
+    if kind == "Teaching":
+        if metadata.get("type"):
+            payload["teaching_type"] = str(metadata["type"])
+        if metadata.get("venue"):
+            payload["venue"] = str(metadata["venue"])
+        if metadata.get("location"):
+            payload["location"] = str(metadata["location"])
     write_frontmatter(destination, payload, body)
     return destination
 
