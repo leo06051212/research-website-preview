@@ -68,6 +68,25 @@ def parse_generated_bibtex(text):
     return header.group(1), header.group(2), fields
 
 
+def create_directory_link(link, target):
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return
+    except OSError as error:
+        if os.name != "nt":
+            raise unittest.SkipTest(f"directory symlinks unavailable: {error}")
+    created = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if created.returncode:
+        raise unittest.SkipTest(
+            f"directory symlinks and junctions unavailable: {created.stderr.strip()}"
+        )
+
+
 class PublicationImporterTests(unittest.TestCase):
     def test_normalises_bare_doi_and_doi_url(self):
         bare = normalize_source("10.1109/MCSoC67473.2025.00122")
@@ -320,6 +339,8 @@ class PublicationImporterTests(unittest.TestCase):
             updated = yaml.safe_load(request.read_text(encoding="utf-8"))
             self.assertEqual(updated["status"], "failed")
             self.assertEqual(updated["error"], "request disk full")
+            self.assertNotIn("processed_at", updated)
+            self.assertNotIn("result_path", updated)
 
     def test_processed_request_is_idempotent(self):
         with TemporaryDirectory() as temp:
@@ -369,6 +390,7 @@ class PublicationImporterTests(unittest.TestCase):
             base = Path(temp)
             root = base / "repo"
             root.mkdir()
+            (root / "data/publication-imports").mkdir(parents=True)
             outside = base / "outside.yml"
             original = "source: 10.1109/example\nstatus: pending\n"
             outside.write_text(original, encoding="utf-8")
@@ -432,6 +454,51 @@ class PublicationImporterTests(unittest.TestCase):
                     os.rmdir(junction)
 
             self.assertEqual(outside.read_text(encoding="utf-8"), original)
+
+    def test_rejects_import_directory_junction_outside_repository(self):
+        with TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "repo"
+            (root / "data").mkdir(parents=True)
+            outside = base / "external-imports"
+            outside.mkdir()
+            import_link = root / "data/publication-imports"
+            create_directory_link(import_link, outside)
+            request = import_link / "request.yml"
+            original = "source: 10.1109/example\nstatus: pending\n"
+            request.write_text(original, encoding="utf-8")
+
+            try:
+                with self.assertRaisesRegex(ValueError, "inside the repository"):
+                    process_request(request, root, lambda _: self.fail("unexpected fetch"))
+                self.assertEqual(request.read_text(encoding="utf-8"), original)
+            finally:
+                if import_link.exists():
+                    os.rmdir(import_link)
+
+    def test_rejects_publication_directory_junction_outside_repository(self):
+        with TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "repo"
+            request_dir = root / "data/publication-imports"
+            request_dir.mkdir(parents=True)
+            request = request_dir / "request.yml"
+            request.write_text(
+                "source: 10.1109/example\nstatus: pending\n", encoding="utf-8"
+            )
+            (root / "content").mkdir()
+            outside = base / "external-publications"
+            outside.mkdir()
+            publication_link = root / "content/publications"
+            create_directory_link(publication_link, outside)
+
+            try:
+                with self.assertRaisesRegex(ValueError, "[Pp]ublication directory"):
+                    process_request(request, root, lambda _: self.fail("unexpected fetch"))
+                self.assertEqual(list(outside.iterdir()), [])
+            finally:
+                if publication_link.exists():
+                    os.rmdir(publication_link)
 
     def test_similar_doi_prefix_is_not_treated_as_duplicate(self):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -505,6 +572,34 @@ class PublicationImporterTests(unittest.TestCase):
             updated = yaml.safe_load(request.read_text(encoding="utf-8"))
             self.assertEqual(updated["status"], "failed")
             self.assertIn("configure IEEE_API_KEY", updated["error"])
+
+    def test_malformed_ieee_shapes_use_stable_key_free_error(self):
+        malformed_responses = [
+            [],
+            {"articles": [None]},
+            {"articles": [{"doi": []}]},
+        ]
+        for position, malformed in enumerate(malformed_responses):
+            with self.subTest(position=position), TemporaryDirectory() as temp:
+                root = Path(temp)
+                request_dir = root / "data/publication-imports"
+                request_dir.mkdir(parents=True)
+                request = request_dir / "malformed-ieee.yml"
+                request.write_text(
+                    "source: https://ieeexplore.ieee.org/document/11310955\n"
+                    "status: pending\n",
+                    encoding="utf-8",
+                )
+                secret = "shape-test-secret"
+                with patch.dict(os.environ, {"IEEE_API_KEY": secret}, clear=True):
+                    with self.assertRaisesRegex(
+                        ValueError, "IEEE metadata response is invalid"
+                    ):
+                        process_request(request, root, lambda _: malformed)
+
+                updated = request.read_text(encoding="utf-8")
+                self.assertIn("IEEE metadata response is invalid", updated)
+                self.assertNotIn(secret, updated)
 
     def test_missing_abstract_and_owner_links_are_supported(self):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -869,6 +964,167 @@ class PublicationImporterTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(SystemExit, "2"):
                 main()
+
+    def test_all_pending_syncs_corrected_imported_citation_end_to_end(self):
+        fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        fixture["message"]["title"] = []
+        fixture["message"]["author"] = []
+        fixture["message"].pop("published-print")
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            request_dir = root / "data/publication-imports"
+            request_dir.mkdir(parents=True)
+            request = request_dir / "corrected.yml"
+            request.write_text(
+                "source: 10.1109/MCSoC67473.2025.00122\nstatus: pending\n",
+                encoding="utf-8",
+            )
+            result = process_request(request, root, lambda _: fixture)
+            bundle = root / result.result_path
+            index = bundle / "index.md"
+            parts = index.read_text(encoding="utf-8").split("---", 2)
+            frontmatter = yaml.safe_load(parts[1])
+            self.assertEqual(
+                frontmatter["publication_importer"]["managed_citation"], True
+            )
+
+            frontmatter.update(
+                title="Owner Corrected Title & FPGA_Design",
+                authors=["me", "Corrected Collaborator"],
+                date="2026-03-14T00:00:00Z",
+                publication_types=["report"],
+                draft=False,
+                requires_correction=False,
+            )
+            frontmatter["publication"]["name"] = "Corrected Research Institute"
+            index.write_text(
+                "---\n"
+                + yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
+                + "---"
+                + parts[2],
+                encoding="utf-8",
+            )
+
+            argv = [
+                "publication_importer.py",
+                "--repo-root",
+                str(root),
+                "--all-pending",
+            ]
+            with patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(SystemExit, "0"):
+                    main()
+
+            entry_type, _, fields = parse_generated_bibtex(
+                (bundle / "cite.bib").read_text(encoding="utf-8")
+            )
+            self.assertEqual(entry_type, "techreport")
+            self.assertEqual(fields["title"], "Owner Corrected Title & FPGA_Design")
+            self.assertEqual(
+                fields["author"], "Sean Longyu Ma and Corrected Collaborator"
+            )
+            self.assertEqual(fields["year"], "2026")
+            self.assertEqual(fields["institution"], "Corrected Research Institute")
+
+    def test_citation_sync_does_not_touch_legacy_bundle(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            bundle = root / "content/publications/legacy"
+            bundle.mkdir(parents=True)
+            index_text = (
+                "---\ntitle: Legacy publication\nauthors: [me]\n"
+                "date: '2020-01-01T00:00:00Z'\n"
+                "publication_types: [article-journal]\n"
+                "publication: {name: Legacy Journal}\n"
+                "hugoblox: {ids: {doi: 10.1109/legacy}}\n---\n"
+            )
+            citation_text = "@article{legacy,\n  title = {Do not replace me},\n}\n"
+            bundle.joinpath("index.md").write_text(index_text, encoding="utf-8")
+            bundle.joinpath("cite.bib").write_text(citation_text, encoding="utf-8")
+
+            publication_importer.sync_imported_citations(root)
+
+            self.assertEqual(bundle.joinpath("index.md").read_text(), index_text)
+            self.assertEqual(bundle.joinpath("cite.bib").read_text(), citation_text)
+
+    def test_incomplete_managed_record_is_forced_back_to_draft_by_sync(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            bundle = root / "content/publications/managed"
+            bundle.mkdir(parents=True)
+            bundle.joinpath("index.md").write_text(
+                "---\n"
+                "publication_importer: {managed_citation: true}\n"
+                "publication_types: [article-journal]\n"
+                "publication: {name: Fixture Journal}\n"
+                "hugoblox: {ids: {doi: 10.1109/example}}\n"
+                "draft: false\nrequires_correction: false\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+            publication_importer.sync_imported_citations(root)
+
+            frontmatter = yaml.safe_load(
+                bundle.joinpath("index.md").read_text().split("---", 2)[1]
+            )
+            self.assertTrue(frontmatter["draft"])
+            self.assertTrue(frontmatter["requires_correction"])
+            self.assertGreaterEqual(len(frontmatter["correction_reasons"]), 3)
+
+    def test_managed_record_still_marked_for_correction_cannot_publish(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            bundle = root / "content/publications/managed"
+            bundle.mkdir(parents=True)
+            bundle.joinpath("index.md").write_text(
+                "---\n"
+                "publication_importer: {managed_citation: true}\n"
+                "title: Complete title\nauthors: [me]\n"
+                "date: '2026-01-02T00:00:00Z'\n"
+                "publication_types: [article-journal]\n"
+                "publication: {name: Fixture Journal}\n"
+                "hugoblox: {ids: {doi: 10.1109/example}}\n"
+                "draft: false\nrequires_correction: true\n"
+                "correction_reasons: [Owner review still required]\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+            publication_importer.sync_imported_citations(root)
+
+            frontmatter = yaml.safe_load(
+                bundle.joinpath("index.md").read_text().split("---", 2)[1]
+            )
+            self.assertTrue(frontmatter["draft"])
+            self.assertTrue(frontmatter["requires_correction"])
+
+    def test_managed_citation_requires_a_doi_not_an_ieee_document_url(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            bundle = root / "content/publications/managed"
+            bundle.mkdir(parents=True)
+            bundle.joinpath("index.md").write_text(
+                "---\n"
+                "publication_importer: {managed_citation: true}\n"
+                "title: Complete title\nauthors: [me]\n"
+                "date: '2026-01-02T00:00:00Z'\n"
+                "publication_types: [article-journal]\n"
+                "publication: {name: Fixture Journal}\n"
+                "hugoblox: {ids: {doi: 'https://ieeexplore.ieee.org/document/11310955'}}\n"
+                "draft: false\nrequires_correction: false\n"
+                "---\n",
+                encoding="utf-8",
+            )
+
+            publication_importer.sync_imported_citations(root)
+
+            frontmatter = yaml.safe_load(
+                bundle.joinpath("index.md").read_text().split("---", 2)[1]
+            )
+            self.assertTrue(frontmatter["draft"])
+            self.assertTrue(frontmatter["requires_correction"])
+            self.assertIn("DOI", " ".join(frontmatter["correction_reasons"]))
 
         with patch.object(
             sys,

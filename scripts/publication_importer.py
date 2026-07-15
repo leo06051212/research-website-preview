@@ -101,11 +101,22 @@ def resolve_ieee(
         response = fetch_json(url)
     except Exception as error:
         raise RuntimeError("IEEE metadata request failed") from error
+    if not isinstance(response, dict):
+        raise ValueError("IEEE metadata response is invalid")
     articles = response.get("articles", [])
+    if not isinstance(articles, list):
+        raise ValueError("IEEE metadata response is invalid")
+    if articles and not isinstance(articles[0], dict):
+        raise ValueError("IEEE metadata response is invalid")
     doi = articles[0].get("doi", "") if articles else ""
+    if not isinstance(doi, str):
+        raise ValueError("IEEE metadata response is invalid")
     if not doi:
         raise ValueError("IEEE returned no DOI for this document number")
-    return normalize_source(doi)
+    try:
+        return normalize_source(doi)
+    except ValueError as error:
+        raise ValueError("IEEE returned an invalid DOI for this document number") from error
 
 
 def slugify(value: str) -> str:
@@ -260,6 +271,7 @@ def record_from_crossref(
         "correction_reasons": correction_reasons,
         "date_precision": date_precision,
         "publication_date_parts": date_parts,
+        "publication_importer": {"managed_citation": True},
         "hugoblox": {"ids": {"doi": doi}},
         "links": links,
         "projects": [],
@@ -370,11 +382,26 @@ def save_request(path: Path, request: dict[str, Any]) -> None:
     atomic_write(path, yaml.safe_dump(request, sort_keys=False, allow_unicode=True))
 
 
+def require_inside_repository(path: Path, root: Path, label: str) -> Path:
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise ValueError(f"{label} must resolve inside the repository") from error
+    return resolved
+
+
 def validate_request_path(path: Path, root: Path) -> Path:
     if ".." in path.parts:
         raise ValueError("Publication import request path must not contain parent traversal")
     resolved_root = root.resolve()
-    import_directory = (resolved_root / "data/publication-imports").resolve()
+    import_directory = require_inside_repository(
+        resolved_root / "data/publication-imports",
+        resolved_root,
+        "Publication import directory",
+    )
+    if not import_directory.is_dir():
+        raise ValueError("Publication import directory must be a real directory")
     resolved_path = path.resolve(strict=True)
     if resolved_path.suffix != ".yml" or resolved_path.parent != import_directory:
         raise ValueError(
@@ -384,12 +411,182 @@ def validate_request_path(path: Path, root: Path) -> Path:
     return resolved_path
 
 
+def validate_publication_directory(root: Path) -> Path:
+    resolved_root = root.resolve()
+    publication_directory = require_inside_repository(
+        resolved_root / "content/publications",
+        resolved_root,
+        "Publication directory",
+    )
+    if publication_directory.exists() and not publication_directory.is_dir():
+        raise ValueError("Publication directory must be a directory")
+    return publication_directory
+
+
+def read_frontmatter(index: Path) -> tuple[dict[str, Any], str]:
+    text = index.read_text(encoding="utf-8")
+    parts = text.split("---", 2)
+    if len(parts) != 3 or parts[0].strip():
+        raise ValueError(f"Invalid YAML front matter: {index}")
+    frontmatter = yaml.safe_load(parts[1])
+    if not isinstance(frontmatter, dict):
+        raise ValueError(f"Publication front matter must be a mapping: {index}")
+    return frontmatter, parts[2]
+
+
+def citation_record_from_frontmatter(
+    frontmatter: dict[str, Any],
+) -> tuple[dict[str, Any] | None, list[str]]:
+    reasons: list[str] = []
+    title = frontmatter.get("title")
+    if not isinstance(title, str) or not title.strip():
+        reasons.append("Publication title must be completed before publishing")
+        title = ""
+    else:
+        title = title.strip()
+
+    authors = frontmatter.get("authors")
+    if not isinstance(authors, list) or not authors or any(
+        not isinstance(author, str) or not author.strip() for author in authors
+    ):
+        reasons.append("Publication authors must be completed before publishing")
+        authors = []
+
+    raw_date = frontmatter.get("date")
+    parsed_date: datetime | None = None
+    if isinstance(raw_date, datetime):
+        parsed_date = raw_date
+    elif isinstance(raw_date, str):
+        try:
+            parsed_date = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+        except ValueError:
+            parsed_date = None
+    if parsed_date is None or parsed_date.tzinfo is None:
+        reasons.append("A complete timezone-aware publication date is required")
+
+    publication_types = frontmatter.get("publication_types")
+    if (
+        not isinstance(publication_types, list)
+        or len(publication_types) != 1
+        or publication_types[0] not in PUBLICATION_TYPES
+    ):
+        reasons.append("Exactly one supported publication type is required")
+        publication_types = []
+
+    publication = frontmatter.get("publication")
+    if not isinstance(publication, dict):
+        reasons.append("Publication venue metadata must be an object")
+        publication = {}
+    venue = publication.get("name")
+    if not isinstance(venue, str) or not venue.strip():
+        reasons.append("Publication venue must be completed before publishing")
+    normalised_publication: dict[str, str] = {}
+    for source, destination in (
+        ("name", "name"),
+        ("volume", "volume"),
+        ("issue", "issue"),
+        ("pages", "pages"),
+        ("article_number", "article_number"),
+        ("publisher", "publisher"),
+    ):
+        value = publication.get(source, "")
+        if not isinstance(value, str):
+            reasons.append(f"Publication {source} must be a string")
+            value = ""
+        normalised_publication[destination] = value.strip()
+
+    try:
+        ids = frontmatter.get("hugoblox", {}).get("ids", {})
+        doi_value = ids.get("doi")
+    except AttributeError:
+        doi_value = None
+    if not isinstance(doi_value, str):
+        reasons.append("Publication DOI must be a string")
+        doi = ""
+    else:
+        try:
+            doi_identifier = normalize_source(doi_value)
+            if doi_identifier.kind != "doi":
+                raise ValueError("not a DOI")
+            doi = doi_identifier.value
+        except ValueError:
+            reasons.append("Publication DOI must be valid")
+            doi = ""
+
+    if reasons:
+        return None, reasons
+    assert parsed_date is not None
+    return {
+        "title": title,
+        "authors": authors,
+        "publication_date_parts": [
+            parsed_date.year,
+            parsed_date.month,
+            parsed_date.day,
+        ],
+        "publication_types": publication_types,
+        "publication": normalised_publication,
+        "hugoblox": {"ids": {"doi": doi}},
+    }, []
+
+
+def sync_imported_citations(root: Path) -> list[Path]:
+    root = root.resolve()
+    publication_directory = validate_publication_directory(root)
+    if not publication_directory.exists():
+        return []
+    synced: list[Path] = []
+    for index in sorted(publication_directory.glob("*/index.md")):
+        frontmatter, body = read_frontmatter(index)
+        marker = frontmatter.get("publication_importer")
+        if not isinstance(marker, dict) or marker.get("managed_citation") is not True:
+            continue
+        record, reasons = citation_record_from_frontmatter(frontmatter)
+        requires_correction = frontmatter.get("requires_correction")
+        if type(requires_correction) is not bool:
+            reasons.append("requires_correction must be reviewed before publishing")
+        draft = frontmatter.get("draft")
+        if type(draft) is not bool:
+            reasons.append("draft must be a boolean")
+        if reasons:
+            frontmatter["draft"] = True
+            frontmatter["requires_correction"] = True
+            frontmatter["correction_reasons"] = reasons
+            rendered = yaml.safe_dump(
+                frontmatter, sort_keys=False, allow_unicode=True
+            ).strip()
+            atomic_write(index, f"---\n{rendered}\n---{body}")
+            continue
+        assert record is not None
+        if requires_correction:
+            frontmatter["draft"] = True
+            rendered = yaml.safe_dump(
+                frontmatter, sort_keys=False, allow_unicode=True
+            ).strip()
+            atomic_write(index, f"---\n{rendered}\n---{body}")
+        else:
+            frontmatter["correction_reasons"] = []
+            frontmatter["date_precision"] = "day"
+            frontmatter["publication_date_parts"] = record[
+                "publication_date_parts"
+            ]
+            rendered = yaml.safe_dump(
+                frontmatter, sort_keys=False, allow_unicode=True
+            ).strip()
+            atomic_write(index, f"---\n{rendered}\n---{body}")
+        atomic_write(index.parent / "cite.bib", render_bibtex(record))
+        synced.append(index.parent)
+    return synced
+
+
 def process_request(
     path: Path,
     root: Path,
     fetch_json: Callable[[str], dict[str, Any]] = fetch_json_url,
 ) -> ProcessResult:
+    root = root.resolve()
     path = validate_request_path(path, root)
+    publication_directory = validate_publication_directory(root)
     loaded_request = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(loaded_request, dict):
         raise ValueError("Publication import request must be a YAML mapping")
@@ -439,14 +636,17 @@ def process_request(
         slug_year = str(parts[0]) if parts else "undated"
         slug_identity = record.get("title") or identifier.value
         slug = slugify(f"{slug_year}-{slug_identity}")
-        bundle = root / "content/publications" / slug
+        bundle = publication_directory / slug
         if bundle.exists():
             raise FileExistsError(f"Publication bundle already exists: {bundle.name}")
         frontmatter = yaml.safe_dump(record, sort_keys=False, allow_unicode=True).strip()
         citation = render_bibtex(record)
-        bundle.parent.mkdir(parents=True, exist_ok=True)
+        publication_directory.mkdir(parents=True, exist_ok=True)
+        publication_directory = validate_publication_directory(root)
+        bundle = publication_directory / slug
         staging = Path(tempfile.mkdtemp(prefix=f".{slug}-", dir=bundle.parent))
         try:
+            require_inside_repository(staging, root, "Publication staging directory")
             atomic_write(staging / "index.md", f"---\n{frontmatter}\n---\n")
             atomic_write(staging / "cite.bib", citation)
             staging.replace(bundle)
@@ -466,7 +666,9 @@ def process_request(
     except Exception as error:
         if created_bundle is not None and created_bundle.exists():
             shutil.rmtree(created_bundle)
-        request.update(status="failed", result_path="", error=str(error))
+        request.pop("processed_at", None)
+        request.pop("result_path", None)
+        request.update(status="failed", error=str(error))
         save_request(path, request)
         raise
 
@@ -491,6 +693,12 @@ def main() -> None:
         except Exception as error:
             failures += 1
             print(f"{path.name}: {error}")
+    if args.all_pending:
+        try:
+            sync_imported_citations(root)
+        except Exception as error:
+            failures += 1
+            print(f"citation sync: {error}")
     raise SystemExit(1 if failures else 0)
 
 
