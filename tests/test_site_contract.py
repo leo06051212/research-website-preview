@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 import yaml
 
@@ -56,6 +57,37 @@ class SiteContractTests(unittest.TestCase):
     def test_preview_is_not_indexed(self):
         hook = ROOT / "layouts/_partials/hooks/head-end/noindex.html"
         self.assertIn('content="noindex,nofollow"', hook.read_text(encoding="utf-8"))
+
+    def test_editorial_typography_contract(self):
+        params = self.load_yaml("config/_default/params.yaml")
+        self.assertEqual(params["hugoblox"]["typography"]["pack"], "academic")
+
+        css = (ROOT / "assets/css/custom.css").read_text(encoding="utf-8")
+        self.assertIn("--sean-interface-font: ui-sans-serif", css)
+        interface_rule = re.search(
+            r"([^{}]+)\{[^{}]*font-family:\s*var\(--sean-interface-font\);[^{}]*\}",
+            css,
+        )
+        self.assertIsNotNone(interface_rule)
+        interface_selectors = {
+            selector.strip() for selector in interface_rule.group(1).split(",")
+        }
+        for selector in [
+            "nav",
+            ".navbar",
+            ".nav-link",
+            ".nav-dropdown-link",
+            "button",
+            "input",
+            "select",
+            "textarea",
+            '[role="button"]',
+            ".btn",
+            ".page-footer",
+            "footer",
+        ]:
+            self.assertIn(selector, interface_selectors)
+        self.assertNotIn("h1", interface_selectors)
 
 
 if __name__ == "__main__":
