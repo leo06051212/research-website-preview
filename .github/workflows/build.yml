@@ -71,7 +71,7 @@ jobs:
         VERSION=$(yq '.build.hugo_version // ""' hugoblox.yaml 2>/dev/null | grep -v '^null$' || true)
         
         # Fallback to a known stable version if not specified
-        DEFAULT_VERSION="0.161.1"
+        DEFAULT_VERSION="0.162.0"
         VERSION=${VERSION:-$DEFAULT_VERSION}
         
         # Validate version format (basic check)
@@ -95,9 +95,7 @@ jobs:
       run: python -m pip install -r requirements-dev.txt
 
     - name: Validate managed publication content
-      run: |
-        python -c "from pathlib import Path; from scripts.publication_importer import sync_imported_citations; sync_imported_citations(Path('.'))"
-        git diff --exit-code -- content/publications
+      run: python scripts/check_publication_sync.py --repo-root .
 
     - name: Verify Tailwind CSS dependency
       if: hashFiles('package.json') != ''

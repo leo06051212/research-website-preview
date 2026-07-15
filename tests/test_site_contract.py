@@ -200,6 +200,11 @@ class SiteContractTests(unittest.TestCase):
         self.assertEqual(dispatch["if"], "needs.import.result == 'success'")
         self.assertEqual(dispatch["permissions"], {"actions": "write"})
         self.assertNotIn("secrets", dispatch)
+        dispatch_step = dispatch["steps"][0]
+        self.assertIn(
+            'gh workflow run deploy.yml --repo "${{ github.repository }}" --ref main',
+            dispatch_step["run"],
+        )
 
     def test_deploy_defers_publication_changes_to_import_validation(self):
         workflow = self.load_workflow(".github/workflows/deploy.yml")
@@ -231,9 +236,22 @@ class SiteContractTests(unittest.TestCase):
         self.assertLess(build_hugo, run_tests)
         self.assertLess(run_tests, check_site)
         validation = steps[validate_content]["run"]
-        self.assertIn("sync_imported_citations", validation)
-        self.assertIn("git diff --exit-code -- content/publications", validation)
+        self.assertEqual(
+            validation,
+            "python scripts/check_publication_sync.py --repo-root .",
+        )
+        sync_gate = (ROOT / "scripts/check_publication_sync.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--porcelain", sync_gate)
+        self.assertIn("--untracked-files=all", sync_gate)
+        self.assertIn("content/publications", sync_gate)
         self.assertIn("--content content", steps[check_site]["run"])
+
+    def test_workflow_hugo_fallback_matches_repository_pin(self):
+        pin = self.load_yaml("hugoblox.yaml")["build"]["hugo_version"]
+        workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        self.assertIn(f'DEFAULT_VERSION="{pin}"', workflow)
 
 if __name__ == "__main__":
     unittest.main()

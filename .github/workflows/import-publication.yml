@@ -64,4 +64,4 @@ jobs:
       - name: Dispatch validated site deployment
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run deploy.yml --ref main
+        run: gh workflow run deploy.yml --repo "${{ github.repository }}" --ref main
