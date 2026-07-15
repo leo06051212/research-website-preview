@@ -22,6 +22,7 @@ select,
 textarea,
 [role="button"],
 .btn,
+#section-resume-biography-3 a[href$="/uploads/sean-ma-cv.pdf"],
 .page-footer,
 footer { font-family: var(--sean-interface-font); }
 .prose { max-width: 72ch; }
