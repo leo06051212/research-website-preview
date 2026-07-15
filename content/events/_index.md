@@ -1,0 +1,4 @@
+---
+title: Talks
+view: card
+---

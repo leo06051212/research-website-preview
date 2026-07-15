@@ -4,9 +4,9 @@
 # This file is formatted using YAML syntax - learn more at https://learnxinyminutes.com/docs/yaml/
 
 # Website name (set in params.yaml under hugoblox.branding.name)
-title: ''
+title: 'Dr Sean Longyu Ma'
 # Website URL
-baseURL: 'https://example.com/'
+baseURL: 'https://leo06051212.github.io/research-website-preview/'
 
 ############################
 ## LANGUAGE
@@ -38,7 +38,7 @@ summaryLength: 30
 pagination:
   pagerSize: 10
 enableEmoji: true
-enableRobotsTXT: true
+enableRobotsTXT: false
 footnotereturnlinkcontents: <sup>^</sup>
 ignoreFiles: [".ipynb_checkpoints$", "\\.Rmd$", "\\.Rmarkdown$", "_cache$"]
 disableAliases: true

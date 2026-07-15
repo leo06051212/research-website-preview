@@ -1,0 +1,19 @@
+:root {
+  --sean-paper: #fbfaf7;
+  --sean-ink: #1e2b38;
+  --sean-muted: #626a72;
+  --sean-accent: #8b5a2b;
+  --sean-rule: #d8d3c8;
+}
+
+html { scroll-behavior: smooth; }
+body { background: var(--sean-paper); color: var(--sean-ink); }
+h1, h2, h3 { letter-spacing: -0.015em; text-wrap: balance; }
+a { text-underline-offset: 0.18em; }
+.navbar, header { border-bottom: 1px solid var(--sean-rule); }
+.prose { max-width: 72ch; }
+.page-footer, footer { border-top: 1px solid var(--sean-rule); }
+@media (max-width: 640px) {
+  h1 { font-size: clamp(2rem, 10vw, 3rem); }
+  .prose { font-size: 1rem; }
+}
