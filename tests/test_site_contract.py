@@ -89,5 +89,15 @@ class SiteContractTests(unittest.TestCase):
             self.assertIn(selector, interface_selectors)
         self.assertNotIn("h1", interface_selectors)
 
+    def test_pages_cms_collections(self):
+        cms = self.load_yaml(".pages.yml")
+        names = {item["name"] for item in cms["content"]}
+        self.assertEqual(
+            names,
+            {"publication_imports", "publications", "talks", "blog", "teaching", "profile"},
+        )
+        self.assertEqual(cms["media"]["input"], "static/uploads")
+        self.assertEqual(cms["media"]["output"], "/research-website-preview/uploads")
+
 if __name__ == "__main__":
     unittest.main()

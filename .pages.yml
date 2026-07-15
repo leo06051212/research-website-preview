@@ -1,0 +1,273 @@
+media:
+  input: static/uploads
+  output: /research-website-preview/uploads
+
+content:
+  - name: publication_imports
+    label: Add publication by DOI or IEEE URL
+    type: collection
+    path: data/publication-imports
+    format: yaml
+    filename: "{year}-{month}-{day}-{hour}-{minute}-{source}.yml"
+    view:
+      primary: source
+      fields: [source, status, publication_type, featured]
+      sort: [source, status]
+    fields:
+      - name: source
+        label: DOI or IEEE Xplore URL
+        type: string
+        required: true
+      - name: publication_type
+        type: select
+        required: true
+        options:
+          values:
+            - name: article-journal
+              label: Journal article
+            - name: paper-conference
+              label: Conference paper
+            - name: chapter
+              label: Book chapter
+            - name: report
+              label: Report
+            - name: manuscript
+              label: Preprint or manuscript
+      - name: featured
+        type: boolean
+        default: false
+      - name: pdf_url
+        type: string
+      - name: code_url
+        type: string
+      - name: dataset_url
+        type: string
+      - name: slides_url
+        type: string
+      - name: status
+        type: select
+        readonly: true
+        default: pending
+        options:
+          values: [pending, processed, duplicate, failed]
+      - name: result_path
+        type: string
+        readonly: true
+      - name: error
+        type: text
+        readonly: true
+
+  - name: publications
+    label: Publications
+    type: collection
+    path: content/publications
+    format: yaml-frontmatter
+    subfolders: true
+    exclude: [_index.md]
+    view:
+      layout: tree
+      node:
+        filename: index.md
+        hideDirs: others
+      primary: title
+      fields: [title, date, draft, featured]
+    operations:
+      create: false
+    fields:
+      - name: title
+        type: string
+        required: true
+      - name: authors
+        type: string
+        list: true
+        required: true
+      - name: date
+        type: date
+        required: true
+        options:
+          time: true
+          format: yyyy-MM-dd'T'HH:mm:ssXXX
+      - name: publication_types
+        type: select
+        options:
+          multiple: true
+          values: [article-journal, paper-conference, chapter, report, manuscript]
+      - name: publication
+        type: object
+        fields:
+          - name: name
+            label: Journal or conference
+            type: string
+          - name: volume
+            type: string
+          - name: issue
+            type: string
+          - name: pages
+            type: string
+      - name: abstract
+        type: text
+      - name: summary
+        type: text
+      - name: hugoblox
+        type: object
+        fields:
+          - name: ids
+            type: object
+            fields:
+              - name: doi
+                label: DOI
+                type: string
+                readonly: true
+      - name: links
+        type: object
+        list:
+          collapsible:
+            collapsed: true
+            summary: "{type}"
+        fields:
+          - name: type
+            type: select
+            options:
+              values: [source, pdf, code, dataset, slides, video]
+          - name: url
+            type: string
+      - name: featured
+        type: boolean
+      - name: draft
+        type: boolean
+      - name: body
+        type: rich-text
+
+  - name: talks
+    label: Talks
+    type: collection
+    path: content/events
+    format: yaml-frontmatter
+    exclude: [_index.md]
+    filename: "{year}-{month}-{day}-{title}.md"
+    view:
+      primary: title
+      fields: [title, event_start, location, draft]
+      sort: [event_start, title]
+      default:
+        sort: event_start
+        order: desc
+    fields:
+      - name: title
+        type: string
+        required: true
+      - name: event_name
+        type: string
+        required: true
+      - name: event_url
+        type: string
+      - name: location
+        type: string
+      - name: event_start
+        type: date
+        required: true
+        options:
+          time: true
+          format: yyyy-MM-dd'T'HH:mm:ssXXX
+      - name: event_end
+        type: date
+        default: ""
+        options:
+          time: true
+          format: yyyy-MM-dd'T'HH:mm:ssXXX
+      - name: event_all_day
+        type: boolean
+      - name: summary
+        type: text
+      - name: abstract
+        type: text
+      - name: tags
+        type: string
+        list: true
+      - name: featured
+        type: boolean
+      - name: draft
+        type: boolean
+        default: true
+      - name: body
+        type: rich-text
+
+  - name: blog
+    label: Blog Posts
+    type: collection
+    path: content/blog
+    format: yaml-frontmatter
+    exclude: [_index.md]
+    filename: "{year}-{month}-{day}-{title}.md"
+    view:
+      primary: title
+      fields: [title, date, draft]
+      sort: [date, title]
+      default:
+        sort: date
+        order: desc
+    fields:
+      - name: title
+        type: string
+        required: true
+      - name: date
+        type: date
+        required: true
+        options:
+          format: yyyy-MM-dd
+      - name: summary
+        type: text
+      - name: tags
+        type: string
+        list: true
+      - name: draft
+        type: boolean
+        default: true
+      - name: body
+        type: rich-text
+
+  - name: teaching
+    label: Teaching
+    type: collection
+    path: content/teaching
+    format: yaml-frontmatter
+    exclude: [_index.md]
+    filename: "{title}.md"
+    view:
+      primary: title
+      fields: [title, date, draft]
+    fields:
+      - name: title
+        type: string
+        required: true
+      - name: date
+        type: date
+        required: true
+        options:
+          format: yyyy-MM-dd
+      - name: summary
+        type: text
+      - name: tags
+        type: string
+        list: true
+      - name: draft
+        type: boolean
+        default: true
+      - name: body
+        type: rich-text
+
+  - name: profile
+    label: Profile
+    type: file
+    path: data/authors/me.yaml
+    format: yaml
+    fields:
+      - name: role
+        type: string
+        required: true
+      - name: bio
+        type: rich-text
+        required: true
+      - name: interests
+        type: string
+        list: true
