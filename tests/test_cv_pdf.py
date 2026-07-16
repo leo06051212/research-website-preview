@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 import tempfile
@@ -9,9 +10,12 @@ from PIL import Image
 from pypdf import PdfReader
 import yaml
 
-from scripts.cv_data import load_cv_document
+from scripts.cv_data import CvTeaching, load_cv_document
 from scripts.cv_pdf import render_cv_pdf
 from tests.test_cv_data import author_record, publication_record, write_frontmatter
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class CvPdfTests(unittest.TestCase):
@@ -66,6 +70,18 @@ class CvPdfTests(unittest.TestCase):
         output = root / "static/uploads/sean-ma-cv.pdf"
         result = render_cv_pdf(
             load_cv_document(root),
+            portrait,
+            output,
+            generated_on=date(2026, 7, 17),
+        )
+        return output, result
+
+    def _render_canonical(self, root: Path):
+        portrait = root / "portrait.jpg"
+        Image.new("RGB", (600, 800), "#1d2939").save(portrait, "JPEG")
+        output = root / "canonical.pdf"
+        result = render_cv_pdf(
+            load_cv_document(ROOT),
             portrait,
             output,
             generated_on=date(2026, 7, 17),
@@ -166,6 +182,101 @@ class CvPdfTests(unittest.TestCase):
                 generated_on=date(2026, 7, 17),
             )
         self.assertEqual(output.read_bytes(), b"%PDF-old-valid-placeholder")
+
+    def test_canonical_cjk_venue_is_visible_and_searchable(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output, _ = self._render_canonical(Path(temporary.name))
+        reader = PdfReader(output)
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        self.assertIn("Room 408 微电子楼", text)
+        self.assertNotIn("\x00", text)
+        fonts = {
+            str(font.get_object().get("/BaseFont", ""))
+            for page in reader.pages
+            for font in page["/Resources"]["/Font"].get_object().values()
+        }
+        self.assertTrue(any("STSong-Light" in font for font in fonts), fonts)
+
+    def test_canonical_teaching_markdown_controls_do_not_leak(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output, _ = self._render_canonical(Path(temporary.name))
+        text = "\n".join(page.extract_text() or "" for page in PdfReader(output).pages)
+        self.assertIn("Doctor of Philosophy in Computer Science", text)
+        self.assertIn("Research on Neural Network Circuit", text)
+        self.assertNotIn("======", text)
+        self.assertNotIn("------", text)
+        self.assertNotIn(">Research", text)
+
+    def test_overheight_teaching_entry_splits_and_preserves_all_text(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self._write_minimal_repo(root)
+        portrait = root / "portrait.jpg"
+        Image.new("RGB", (600, 800), "#1d2939").save(portrait, "JPEG")
+        items = [f"Searchable teaching item {index:04d}" for index in range(400)]
+        teaching_body = (
+            "# Editorial Heading\n"
+            "Lead with hard break  \n"
+            "continuation\n"
+            "1. Ordered guidance\n"
+            + "\n".join(f"- {item}" for item in items)
+        )
+        document = replace(
+            load_cv_document(root),
+            teaching=(
+                CvTeaching(
+                    title="Long Teaching Record",
+                    teaching_type="Teaching",
+                    venue="The University of Auckland",
+                    location="Auckland, New Zealand",
+                    body=teaching_body,
+                ),
+            ),
+        )
+        output = root / "long-teaching.pdf"
+        result = render_cv_pdf(
+            document,
+            portrait,
+            output,
+            generated_on=date(2026, 7, 17),
+        )
+        text = "\n".join(page.extract_text() or "" for page in PdfReader(output).pages)
+        self.assertGreater(result.page_count, 4)
+        self.assertEqual(text.count("Searchable teaching item"), len(items))
+        self.assertIn(items[0], text)
+        self.assertIn(items[-1], text)
+        self.assertIn("Editorial Heading", text)
+        self.assertNotIn("# Editorial Heading", text)
+        self.assertIn("Lead with hard break\ncontinuation", text)
+        self.assertIn("1. Ordered guidance", text)
+
+    def test_corrupt_portrait_is_rejected_before_build_and_preserves_output(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self._write_minimal_repo(root)
+        portrait = root / "corrupt-portrait.jpg"
+        portrait.write_bytes(b"this is not an image")
+        output = root / "static/uploads/sean-ma-cv.pdf"
+        output.parent.mkdir(parents=True)
+        output.write_bytes(b"%PDF-old-valid-placeholder")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"Portrait.*{portrait.name}.*valid image",
+        ):
+            render_cv_pdf(
+                load_cv_document(root),
+                portrait,
+                output,
+                generated_on=date(2026, 7, 17),
+            )
+
+        self.assertEqual(output.read_bytes(), b"%PDF-old-valid-placeholder")
+        self.assertEqual(list(output.parent.glob(f".{output.name}.*.tmp")), [])
 
 
 if __name__ == "__main__":

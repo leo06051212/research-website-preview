@@ -5,6 +5,7 @@ from datetime import date
 import html
 import os
 from pathlib import Path
+import re
 import tempfile
 
 from PIL import Image
@@ -16,6 +17,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     BaseDocTemplate,
@@ -34,6 +36,7 @@ TEXT = colors.HexColor("#243746")
 MUTED = colors.HexColor("#526777")
 RAIL = colors.HexColor("#E5EDF2")
 WHITE = colors.white
+FULL_CONTENT_FRAME_HEIGHT = A4[1] - 30 * mm
 
 
 @dataclass(frozen=True)
@@ -47,7 +50,10 @@ class _EntryParagraph(Paragraph):
     """Move compact CV entries intact when the current frame is too short."""
 
     def split(self, availWidth: float, availHeight: float) -> list:
-        return []
+        _, full_height = self.wrap(availWidth, FULL_CONTENT_FRAME_HEIGHT)
+        if full_height <= FULL_CONTENT_FRAME_HEIGHT:
+            return []
+        return super().split(availWidth, availHeight)
 
 
 def register_cv_fonts() -> None:
@@ -71,6 +77,8 @@ def register_cv_fonts() -> None:
         italic="CvSans-Italic",
         boldItalic="CvSans-BoldItalic",
     )
+    if "STSong-Light" not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
 
 
 def validate_pdf(path: Path) -> tuple[int, int]:
@@ -99,6 +107,7 @@ def render_cv_pdf(
     portrait = portrait.resolve()
     if not portrait.is_file():
         raise ValueError(f"Portrait is missing: {portrait}")
+    _validate_portrait(portrait)
     register_cv_fonts()
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -122,8 +131,103 @@ def _xml(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
+def _is_cjk(character: str) -> bool:
+    codepoint = ord(character)
+    return (
+        0x3400 <= codepoint <= 0x4DBF
+        or 0x4E00 <= codepoint <= 0x9FFF
+        or 0xF900 <= codepoint <= 0xFAFF
+        or 0x20000 <= codepoint <= 0x2FA1F
+    )
+
+
+def _markup(value: object) -> str:
+    """Escape text and select the CJK fallback only for covered characters."""
+    text = str(value)
+    if not text:
+        return ""
+    pieces: list[str] = []
+    start = 0
+    cjk = _is_cjk(text[0])
+    for index, character in enumerate(text[1:], start=1):
+        character_is_cjk = _is_cjk(character)
+        if character_is_cjk == cjk:
+            continue
+        chunk = _xml(text[start:index])
+        pieces.append(f'<font name="STSong-Light">{chunk}</font>' if cjk else chunk)
+        start = index
+        cjk = character_is_cjk
+    chunk = _xml(text[start:])
+    pieces.append(f'<font name="STSong-Light">{chunk}</font>' if cjk else chunk)
+    return "".join(pieces)
+
+
 def _link(label: str, url: str) -> str:
-    return f'<link href="{_xml(url)}" color="#1F4B66">{_xml(label)}</link>'
+    return f'<link href="{_xml(url)}" color="#1F4B66">{_markup(label)}</link>'
+
+
+def _validate_portrait(portrait: Path) -> None:
+    try:
+        with Image.open(portrait) as image:
+            image.load()
+            if image.width <= 0 or image.height <= 0:
+                raise OSError("invalid dimensions")
+    except (OSError, ValueError):
+        raise ValueError(f"Portrait {portrait} is not a valid image") from None
+
+
+_SETEXT_HEADING = re.compile(r"^\s*=+\s*$")
+_SETEXT_SUBHEADING = re.compile(r"^\s*-{3,}\s*$")
+_ATX_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")
+_BLOCKQUOTE = re.compile(r"^\s*>\s?(.*)$")
+_UNORDERED_LIST = re.compile(r"^\s*[-+*]\s+(.*)$")
+_ORDERED_LIST = re.compile(r"^\s*(\d+[.)])\s+(.*)$")
+
+
+def _teaching_markup(body: str) -> str:
+    """Convert the supported teaching Markdown blocks to editorial markup."""
+    lines = body.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    blocks: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index].rstrip()
+        if not line.strip():
+            index += 1
+            continue
+        next_line = lines[index + 1] if index + 1 < len(lines) else ""
+        if _SETEXT_HEADING.fullmatch(next_line):
+            blocks.append(f"<b>{_markup(line.strip())}</b>")
+            index += 2
+            continue
+        if _SETEXT_SUBHEADING.fullmatch(next_line):
+            blocks.append(f"<b>{_markup(line.strip())}</b>")
+            index += 2
+            continue
+        atx = _ATX_HEADING.fullmatch(line)
+        if atx:
+            blocks.append(f"<b>{_markup(atx.group(1))}</b>")
+            index += 1
+            continue
+        blockquote = _BLOCKQUOTE.fullmatch(line)
+        if blockquote:
+            blocks.append(f"&bull; {_markup(blockquote.group(1))}")
+            index += 1
+            continue
+        unordered = _UNORDERED_LIST.fullmatch(line)
+        if unordered:
+            blocks.append(f"&bull; {_markup(unordered.group(1))}")
+            index += 1
+            continue
+        ordered = _ORDERED_LIST.fullmatch(line)
+        if ordered:
+            blocks.append(
+                f"{_markup(ordered.group(1))} {_markup(ordered.group(2))}"
+            )
+            index += 1
+            continue
+        blocks.append(_markup(line.strip()))
+        index += 1
+    return "<br/>".join(blocks)
 
 
 def _styles() -> dict[str, ParagraphStyle]:
@@ -286,7 +390,7 @@ def _draw_rail(canvas, document: CvDocument, portrait: Path) -> None:
     y = page_height - inset - portrait_height - 6 * mm
     y = _draw_paragraph(
         canvas,
-        f'<font name="CvSans-Bold" size="11.5">{_xml(OWNER_NAME)}</font>',
+        f'<font name="CvSans-Bold" size="11.5">{_markup(OWNER_NAME)}</font>',
         styles["rail"],
         inset,
         y,
@@ -294,10 +398,10 @@ def _draw_rail(canvas, document: CvDocument, portrait: Path) -> None:
     )
     postnominals = ", ".join(document.author.postnominals)
     if postnominals:
-        y = _draw_paragraph(canvas, _xml(postnominals), styles["rail"], inset, y, content_width)
+        y = _draw_paragraph(canvas, _markup(postnominals), styles["rail"], inset, y, content_width)
     y = _draw_paragraph(
         canvas,
-        f"<b>{_xml(document.author.role)}</b>",
+        f"<b>{_markup(document.author.role)}</b>",
         styles["rail"],
         inset,
         y,
@@ -322,13 +426,13 @@ def _draw_rail(canvas, document: CvDocument, portrait: Path) -> None:
         )
     y -= 2 * mm
     y = _draw_paragraph(canvas, "Research Interests", styles["rail_heading"], inset, y, content_width)
-    interests = "<br/>".join(f"- {_xml(item)}" for item in document.author.interests)
+    interests = "<br/>".join(f"- {_markup(item)}" for item in document.author.interests)
     y = _draw_paragraph(canvas, interests, styles["rail"], inset, y, content_width)
     y = _draw_paragraph(canvas, "Education", styles["rail_heading"], inset, y, content_width)
     for item in document.author.education:
         y = _draw_paragraph(
             canvas,
-            f"<b>{_xml(item.degree)}</b><br/>{_xml(item.institution)}, {_xml(item.year)}",
+            f"<b>{_markup(item.degree)}</b><br/>{_markup(item.institution)}, {_markup(item.year)}",
             styles["rail"],
             inset,
             y,
@@ -356,7 +460,7 @@ def _story(document: CvDocument, styles: dict[str, ParagraphStyle]):
     story = []
 
     def section(title: str, entries: list[Paragraph]) -> None:
-        heading = Paragraph(_xml(title), styles["heading"])
+        heading = Paragraph(_markup(title), styles["heading"])
         if entries:
             story.append(KeepTogether([heading, entries[0]]))
             story.extend(entries[1:])
@@ -365,10 +469,10 @@ def _story(document: CvDocument, styles: dict[str, ParagraphStyle]):
 
     section(
         "Academic Profile",
-        [Paragraph(_xml(document.author.profile), styles["body"])],
+        [Paragraph(_markup(document.author.profile), styles["body"])],
     )
     appointment = (
-        f"<b>{_xml(document.author.role)}</b><br/>"
+        f"<b>{_markup(document.author.role)}</b><br/>"
         f"{_link(document.author.affiliation, document.author.affiliation_url)}"
     )
     section(
@@ -379,18 +483,18 @@ def _story(document: CvDocument, styles: dict[str, ParagraphStyle]):
     publication_entries = []
     for publication in document.publications:
         authors = ", ".join(
-            f"<b>{_xml(OWNER_NAME)}</b>" if author == OWNER_ID else _xml(author)
+            f"<b>{_markup(OWNER_NAME)}</b>" if author == OWNER_ID else _markup(author)
             for author in publication.authors
         )
-        citation_parts = [f"<i>{_xml(publication.venue)}</i>"]
+        citation_parts = [f"<i>{_markup(publication.venue)}</i>"]
         if publication.volume:
-            citation_parts.append(_xml(publication.volume))
+            citation_parts.append(_markup(publication.volume))
         if publication.issue:
-            citation_parts.append(f"({_xml(publication.issue)})")
+            citation_parts.append(f"({_markup(publication.issue)})")
         if publication.pages:
-            citation_parts.append(_xml(publication.pages))
+            citation_parts.append(_markup(publication.pages))
         elif publication.article_number:
-            citation_parts.append(_xml(publication.article_number))
+            citation_parts.append(_markup(publication.article_number))
         citation_parts.append(str(publication.published.year))
         links = []
         if publication.doi:
@@ -400,7 +504,7 @@ def _story(document: CvDocument, styles: dict[str, ParagraphStyle]):
         link_line = f"<br/>{' · '.join(links)}" if links else ""
         publication_entries.append(
             _EntryParagraph(
-                f"<b>{_xml(publication.title)}</b><br/>{authors}<br/>"
+                f"<b>{_markup(publication.title)}</b><br/>{authors}<br/>"
                 f"{', '.join(citation_parts)}{link_line}",
                 styles["entry"],
             )
@@ -409,13 +513,14 @@ def _story(document: CvDocument, styles: dict[str, ParagraphStyle]):
 
     talk_entries = []
     for talk in document.talks:
-        details = [talk.event, talk.venue, talk.location]
-        visible = [_xml(value) for value in details if value]
+        venue_line = ", ".join(
+            _markup(value) for value in (talk.venue, talk.location) if value
+        )
         source = f"<br/>{_link('source', talk.source_url)}" if talk.source_url else ""
         talk_entries.append(
             _EntryParagraph(
-                f"<b>{_xml(talk.title)}</b><br/>{', '.join(visible)}, "
-                f"{talk.date.strftime('%d %B %Y')}{source}",
+                f"<b>{_markup(talk.title)}</b><br/>{_markup(talk.event)}<br/>"
+                f"{venue_line}, {talk.date.strftime('%d %B %Y')}{source}",
                 styles["entry"],
             )
         )
@@ -424,12 +529,12 @@ def _story(document: CvDocument, styles: dict[str, ParagraphStyle]):
     teaching_entries = []
     for teaching in document.teaching:
         details = [teaching.teaching_type, teaching.venue, teaching.location]
-        visible = [_xml(value) for value in details if value]
-        body = " ".join(teaching.body.split())
-        body_line = f"<br/>{_xml(body)}" if body else ""
+        visible = [_markup(value) for value in details if value]
+        body = _teaching_markup(teaching.body)
+        body_line = f"<br/>{body}" if body else ""
         teaching_entries.append(
             _EntryParagraph(
-                f"<b>{_xml(teaching.title)}</b><br/>{', '.join(visible)}{body_line}",
+                f"<b>{_markup(teaching.title)}</b><br/>{', '.join(visible)}{body_line}",
                 styles["entry"],
             )
         )
