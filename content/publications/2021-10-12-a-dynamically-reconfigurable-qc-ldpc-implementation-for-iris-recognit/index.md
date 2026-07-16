@@ -20,7 +20,7 @@ hugoblox:
   ids: {}
 links:
 - type: source
-  url: '[https://ieeexplore.ieee.org/abstract/document/9622039/](https://ieeexplore.ieee.org/abstract/document/9622068/)'
+  url: https://ieeexplore.ieee.org/document/9622068
 projects: []
 slides: ''
 citation: Ma, L., Sham, C. W., Lo, C. Y., & Zhong, X. (2021, October). A dynamically

@@ -33,7 +33,7 @@ hugoblox:
     doi: 10.1109/IJCNN64981.2025.11228482
 links:
 - type: source
-  url: https://ieeexplore.ieee.org/document/11228510
+  url: https://ieeexplore.ieee.org/document/11228482
 projects: []
 slides: ''
 citation: J. Li, Z. Liu, S. L. Ma, C. -W. Sham and C. Fu, "A Novel Computing Paradigm

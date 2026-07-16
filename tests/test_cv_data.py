@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -656,6 +657,45 @@ class CvDataTests(unittest.TestCase):
             with self.subTest(category=category):
                 with self.assertRaisesRegex(ValueError, category):
                     validator(incomplete)
+
+    def test_owner_approved_ieee_source_urls_match_canonical_ids(self):
+        cases = (
+            (
+                "content/publications/2025-06-30-a-novel-computing-paradigm-for-mobilenetv3-using-memristor/index.md",
+                "https://ieeexplore.ieee.org/document/11228482",
+                "11228482",
+                "10.1109/IJCNN64981.2025.11228482",
+            ),
+            (
+                "content/publications/2021-10-12-a-dynamically-reconfigurable-qc-ldpc-implementation-for-iris-recognit/index.md",
+                "https://ieeexplore.ieee.org/document/9622068",
+                "9622068",
+                "",
+            ),
+        )
+        for relative_path, expected_url, ieee_id, expected_doi in cases:
+            with self.subTest(relative_path=relative_path):
+                metadata, _ = read_frontmatter(ROOT / relative_path)
+                source_links = [
+                    item["url"]
+                    for item in metadata["links"]
+                    if item.get("type") == "source"
+                ]
+                self.assertEqual(source_links, [expected_url])
+                parsed = urlparse(source_links[0])
+                self.assertEqual(parsed.scheme, "https")
+                self.assertEqual(parsed.netloc, "ieeexplore.ieee.org")
+                self.assertEqual(parsed.path, f"/document/{ieee_id}")
+                self.assertNotIn("[", source_links[0])
+                self.assertNotIn("]", source_links[0])
+                doi = (
+                    metadata.get("hugoblox", {}).get("ids", {}).get("doi", "")
+                )
+                self.assertEqual(doi, expected_doi)
+                if doi:
+                    self.assertEqual(doi.rsplit(".", 1)[-1], ieee_id)
+                else:
+                    self.assertIn(ieee_id, metadata["abstract"])
 
 
 if __name__ == "__main__":
