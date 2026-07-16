@@ -71,3 +71,8 @@ npm-debug.log*
 __pycache__/
 .pytest_cache/
 coverage/
+
+# Generated Academic CV and QA artifacts
+static/uploads/sean-ma-cv.pdf
+output/cv/
+tmp/pdfs/

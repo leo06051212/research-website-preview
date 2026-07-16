@@ -167,6 +167,50 @@ class SiteContractTests(unittest.TestCase):
         self.assertEqual(cms["media"]["output"], "/research-website-preview/uploads")
         self.assertIs(cms.get("settings", {}).get("content", {}).get("merge"), True)
 
+        def cms_fields(value):
+            if isinstance(value, dict):
+                for field in value.get("fields", []):
+                    if isinstance(field, dict):
+                        yield field
+                        yield from cms_fields(field)
+                for key, child in value.items():
+                    if key != "fields":
+                        yield from cms_fields(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from cms_fields(child)
+
+        for field in cms_fields(cms):
+            for key in ["name", "label", "default"]:
+                value = field.get(key)
+                if isinstance(value, str):
+                    normalized = value.casefold()
+                    self.assertNotIn("resume", normalized)
+                    self.assertNotIn("cv upload", normalized)
+
+    def test_owner_approved_portrait_is_canonical(self):
+        from hashlib import sha256
+        from PIL import Image
+
+        portrait = ROOT / "assets/media/authors/me.jpg"
+        self.assertTrue(portrait.is_file())
+        self.assertEqual(
+            sha256(portrait.read_bytes()).hexdigest().upper(),
+            "DFF374EC5453A74392DB54F8B3C1ADE3F3486C71A1EA86271F5AE6116A1A4423",
+        )
+        with Image.open(portrait) as image:
+            self.assertEqual(image.size, (1752, 2291))
+
+    def test_cv_is_generated_and_template_resume_is_removed(self):
+        ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("static/uploads/sean-ma-cv.pdf", ignore)
+        self.assertIn("output/cv/", ignore)
+        self.assertIn("tmp/pdfs/", ignore)
+        self.assertFalse((ROOT / "static/uploads/resume.pdf").exists())
+        homepage = (ROOT / "content/_index.md").read_text(encoding="utf-8")
+        self.assertIn("url: uploads/sean-ma-cv.pdf", homepage)
+        self.assertNotIn("resume.pdf", homepage)
+
     def test_publication_import_workflow_is_failure_gated_and_least_privilege(self):
         self.assertFalse(
             (ROOT / ".github/workflows/import-publications.yml").exists(),
