@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+import tempfile
+import unittest
+
+from PIL import Image
+from pypdf import PdfReader
+import yaml
+
+from scripts.cv_data import load_cv_document
+from scripts.cv_pdf import render_cv_pdf
+from tests.test_cv_data import author_record, publication_record, write_frontmatter
+
+
+class CvPdfTests(unittest.TestCase):
+    def _write_minimal_repo(self, root: Path) -> None:
+        (root / "data/authors").mkdir(parents=True)
+        author = author_record()
+        author["bio"] = "Research profile & secure <systems>."
+        (root / "data/authors/me.yaml").write_text(
+            yaml.safe_dump(author, sort_keys=False),
+            encoding="utf-8",
+        )
+        for index in range(45):
+            metadata = publication_record(
+                f"Research Publication {index:02d}",
+                f"10.1000/paper-{index:02d}",
+                draft=True,
+                managed=False,
+                requires_correction=False,
+            )
+            if index == 0:
+                metadata["title"] = "Safe <Research> & Development"
+            write_frontmatter(
+                root / f"content/publications/paper-{index:02d}/index.md",
+                metadata,
+            )
+        write_frontmatter(
+            root / "content/events/talk.md",
+            {
+                "title": "Invited Research Talk",
+                "event": "Research Seminar",
+                "venue": "The University of Auckland",
+                "location": "Auckland, New Zealand",
+                "date": "2025-06-01T00:00:00Z",
+                "links": [{"type": "source", "url": "https://example.org/talk"}],
+            },
+        )
+        write_frontmatter(
+            root / "content/teaching/teaching.md",
+            {
+                "title": "Postgraduate Supervision",
+                "teaching_type": "Postgraduate supervision",
+                "venue": "The University of Auckland",
+                "location": "Auckland, New Zealand",
+            },
+            "Research student supervision.",
+        )
+
+    def _render_fixture(self, root: Path):
+        self._write_minimal_repo(root)
+        portrait = root / "portrait.jpg"
+        Image.new("RGB", (600, 800), "#1d2939").save(portrait, "JPEG")
+        output = root / "static/uploads/sean-ma-cv.pdf"
+        result = render_cv_pdf(
+            load_cv_document(root),
+            portrait,
+            output,
+            generated_on=date(2026, 7, 17),
+        )
+        return output, result
+
+    def test_pdf_is_searchable_paginated_and_contains_required_sections(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output, result = self._render_fixture(Path(temporary.name))
+        self.assertEqual(output.read_bytes()[:5], b"%PDF-")
+        self.assertGreater(output.stat().st_size, 10_000)
+        reader = PdfReader(output)
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        self.assertGreaterEqual(len(reader.pages), 2)
+        for required in (
+            "Sean Longyu Ma",
+            "Academic Profile",
+            "Current Academic Appointment",
+            "Publications",
+            "Research Interests",
+            "Education",
+            "Invited Talks & Presentations",
+            "Teaching & Postgraduate Supervision",
+            "Generated 17 July 2026",
+            "Safe <Research> & Development",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, text)
+        self.assertEqual(reader.metadata.title, "Sean Longyu Ma - Academic CV")
+        self.assertEqual(reader.metadata.author, "Sean Longyu Ma")
+        self.assertEqual(result.page_count, len(reader.pages))
+        self.assertGreater(result.byte_count, 10_000)
+
+    def test_pdf_contains_doi_and_profile_link_annotations(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output, _ = self._render_fixture(Path(temporary.name))
+        reader = PdfReader(output)
+        uris = {
+            annotation.get_object()["/A"]["/URI"]
+            for page in reader.pages
+            for annotation in page.get("/Annots", [])
+            if "/A" in annotation.get_object()
+            and "/URI" in annotation.get_object()["/A"]
+        }
+        self.assertIn("https://doi.org/10.1000/paper-00", uris)
+        self.assertIn("https://orcid.org/0000-0002-3350-004X", uris)
+        self.assertIn("mailto:sean.ma@auckland.ac.nz", uris)
+        self.assertIn("https://www.auckland.ac.nz/", uris)
+        self.assertIn("https://example.org/talk", uris)
+
+    def test_owner_author_uses_embedded_bold_font(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output, _ = self._render_fixture(Path(temporary.name))
+        reader = PdfReader(output)
+        fonts = {
+            str(font.get_object().get("/BaseFont", ""))
+            for page in reader.pages
+            for font in page["/Resources"]["/Font"].get_object().values()
+        }
+        self.assertTrue(any("BitstreamVeraSans-Bold" in name for name in fonts), fonts)
+
+    def test_rail_name_is_not_split_before_the_family_name(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output, _ = self._render_fixture(Path(temporary.name))
+        first_page_text = PdfReader(output).pages[0].extract_text() or ""
+        self.assertNotIn("Sean Longyu\nMa\nPhD", first_page_text)
+
+    def test_publication_entry_is_not_split_across_pages(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output, _ = self._render_fixture(Path(temporary.name))
+        second_page_lines = (
+            PdfReader(output).pages[1].extract_text() or ""
+        ).splitlines()
+        self.assertTrue(
+            second_page_lines[3].startswith("Research Publication"),
+            second_page_lines[:6],
+        )
+
+    def test_failure_does_not_replace_previous_pdf(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self._write_minimal_repo(root)
+        output = root / "static/uploads/sean-ma-cv.pdf"
+        output.parent.mkdir(parents=True)
+        output.write_bytes(b"%PDF-old-valid-placeholder")
+        missing_portrait = root / "missing.jpg"
+        with self.assertRaisesRegex(ValueError, "Portrait"):
+            render_cv_pdf(
+                load_cv_document(root),
+                missing_portrait,
+                output,
+                generated_on=date(2026, 7, 17),
+            )
+        self.assertEqual(output.read_bytes(), b"%PDF-old-valid-placeholder")
+
+
+if __name__ == "__main__":
+    unittest.main()
