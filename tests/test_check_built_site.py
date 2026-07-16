@@ -80,24 +80,66 @@ class BuiltSiteCheckTests(unittest.TestCase):
     def test_check_rejects_missing_cv(self):
         checker = load_checker()
         self.write_valid_site()
+        for name in ("index.html", "second.html", "nested/page.html"):
+            page = self.public / name
+            page.parent.mkdir(parents=True, exist_ok=True)
+            page.write_text(
+                '<html><title>CV link</title><a href="/research-website-preview/'
+                'uploads/sean-ma-cv.pdf">Academic CV</a></html>',
+                encoding="utf-8",
+            )
         (self.public / "uploads" / "sean-ma-cv.pdf").unlink()
 
         failures = checker.check_site(
             self.public, "/research-website-preview/", self.content
         )
 
-        self.assertTrue(any("Academic CV is missing" in item for item in failures))
+        self.assertEqual(len(failures), 1)
+        self.assertIn("Academic CV is missing", failures[0])
+        self.assertNotIn("broken internal link", failures[0])
 
-    def test_check_rejects_malformed_cv(self):
+    def test_check_rejects_tiny_cv(self):
         checker = load_checker()
         self.write_valid_site()
-        (self.public / "uploads" / "sean-ma-cv.pdf").write_bytes(b"not a pdf")
+        cv_path = self.public / "uploads" / "sean-ma-cv.pdf"
+        cv_path.write_bytes(b"not a pdf")
 
         failures = checker.check_site(
             self.public, "/research-website-preview/", self.content
         )
 
-        self.assertTrue(any("Academic CV is invalid" in item for item in failures))
+        self.assertEqual(len(failures), 1)
+        self.assertIn(f"Academic CV is invalid: {cv_path}", failures[0])
+        self.assertIn("too small", failures[0])
+
+    def test_check_rejects_oversized_cv_without_pdf_signature(self):
+        checker = load_checker()
+        self.write_valid_site()
+        cv_path = self.public / "uploads" / "sean-ma-cv.pdf"
+        cv_path.write_bytes(b"not a pdf" + b"x" * 11_000)
+
+        failures = checker.check_site(
+            self.public, "/research-website-preview/", self.content
+        )
+
+        self.assertEqual(len(failures), 1)
+        self.assertIn(f"Academic CV is invalid: {cv_path}", failures[0])
+        self.assertIn("missing %PDF- signature", failures[0])
+
+    def test_check_rejects_oversized_unparseable_pdf(self):
+        checker = load_checker()
+        self.write_valid_site()
+        cv_path = self.public / "uploads" / "sean-ma-cv.pdf"
+        cv_path.write_bytes(b"%PDF-1.7\n" + b"x" * 11_000 + b"\n%%EOF")
+
+        failures = checker.check_site(
+            self.public, "/research-website-preview/", self.content
+        )
+
+        self.assertEqual(len(failures), 1)
+        self.assertIn(f"Academic CV is invalid: {cv_path}", failures[0])
+        self.assertNotIn("too small", failures[0])
+        self.assertNotIn("missing %PDF- signature", failures[0])
 
     def test_check_reports_missing_semantics_and_broken_internal_link(self):
         checker = load_checker()

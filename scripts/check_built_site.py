@@ -104,6 +104,7 @@ def validate_cv(public_dir: Path) -> list[str]:
 
 def check_site(public: Path, base_path: str, content: Path | None = None) -> list[str]:
     errors = []
+    cv_path = public / "uploads" / "sean-ma-cv.pdf"
     pages = list(public.rglob("*.html"))
     if not pages:
         errors.append(f"{public}: no generated HTML pages")
@@ -117,6 +118,8 @@ def check_site(public: Path, base_path: str, content: Path | None = None) -> lis
         for href in parser.links:
             target = target_for(public, href, base_path)
             if target is not None and not target.exists():
+                if target == cv_path:
+                    continue
                 errors.append(f"{page}: broken internal link {href}")
     if content is not None:
         for source in content.rglob("*.md"):
