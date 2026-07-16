@@ -12,9 +12,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.cv_data import (  # noqa: E402
-    INITIAL_CV_CONTENT_COUNTS,
     MANDATORY_CV_TEXT,
     cv_content_manifest,
+    cv_content_counts,
+    load_cv_document,
+    validate_cv_baseline,
 )
 
 
@@ -87,7 +89,7 @@ def _draft_output(public: Path, content: Path, source: Path) -> Path:
     return public / output_directory / "index.html"
 
 
-def validate_cv(public_dir: Path) -> list[str]:
+def validate_cv(public_dir: Path, content_dir: Path | None = None) -> list[str]:
     cv_path = public_dir / "uploads" / "sean-ma-cv.pdf"
     if not cv_path.exists():
         return [f"Academic CV is missing: {cv_path}"]
@@ -108,13 +110,16 @@ def validate_cv(public_dir: Path) -> list[str]:
         for expected in MANDATORY_CV_TEXT:
             if expected not in text:
                 raise ValueError(f"PDF text is missing {expected!r}")
-        expected_manifest = cv_content_manifest(INITIAL_CV_CONTENT_COUNTS)
-        subject = str(reader.metadata.subject or "")
-        if subject != expected_manifest:
-            raise ValueError(
-                "PDF content manifest is invalid: "
-                f"expected {expected_manifest!r}, found {subject!r}"
-            )
+        if content_dir is not None:
+            document = load_cv_document(content_dir.resolve().parent)
+            validate_cv_baseline(document)
+            expected_manifest = cv_content_manifest(cv_content_counts(document))
+            subject = str(reader.metadata.subject or "")
+            if subject != expected_manifest:
+                raise ValueError(
+                    "PDF content manifest is invalid: "
+                    f"expected {expected_manifest!r}, found {subject!r}"
+                )
     except Exception as error:
         return [f"Academic CV is invalid: {cv_path}: {error}"]
     return []
@@ -150,7 +155,7 @@ def check_site(public: Path, base_path: str, content: Path | None = None) -> lis
                 output = _draft_output(public, content, source)
                 if output.exists():
                     errors.append(f"{output}: draft content was generated from {source}")
-    errors.extend(validate_cv(public))
+    errors.extend(validate_cv(public, content))
     return errors
 
 

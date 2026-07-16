@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 
+import scripts.cv_data as cv_data
 from scripts.cv_data import (
     PublicationReview,
     load_cv_document,
@@ -544,31 +545,31 @@ class CvDataTests(unittest.TestCase):
 
     def test_real_repository_initial_cv_contains_all_33_migrated_publications(self):
         document = load_cv_document(ROOT)
-        self.assertEqual(len(document.publications), 33)
-        self.assertEqual(
-            {item.bundle_path for item in document.publications},
-            EXPECTED_MIGRATED_BUNDLES,
+        self.assertTrue(
+            EXPECTED_MIGRATED_BUNDLES.issubset(
+                {item.bundle_path for item in document.publications}
+            )
         )
-        self.assertEqual(
-            document.author.interests,
-            (
+        self.assertTrue(
+            {
                 "FPGA acceleration",
                 "RISC-V customisation",
                 "High-level synthesis",
                 "Heterogeneous computing",
-            ),
+            }.issubset(document.author.interests),
         )
-        self.assertEqual(
-            tuple((item.degree, item.institution, item.year) for item in document.author.education),
-            (
+        self.assertTrue(
+            {
                 ("PhD in Computer Science", "The University of Auckland", 2023),
                 ("Master of Integrated Circuit Engineering", "Shanghai Jiao Tong University", 2016),
                 ("Bachelor of Communication Engineering", "Harbin Engineering University", 2010),
+            }.issubset(
+                (item.degree, item.institution, item.year)
+                for item in document.author.education
             ),
         )
-        self.assertEqual(
-            tuple(item.title for item in document.talks),
-            (
+        self.assertTrue(
+            {
                 "2026 IEEE International Symposium on Circuits and Systems",
                 "Technical Talks of IEEE Consumer Technoligy Society - 19th Webinar",
                 "IEEE CASS Workshop: Circuit-Level Intelligence: From Secure Silicon to AI-Ready Systems",
@@ -576,24 +577,85 @@ class CvDataTests(unittest.TestCase):
                 "Journey to the “South”: Advancing Computing from Traditional Architectures to Emerging Technologies",
                 "Joint 6G-PHYSEC & INTERACT Workshop on 6G Technologies and PHY Layer Security",
                 "WebVM - an innovative approach to teaching OS concepts",
-            ),
+            }.issubset(item.title for item in document.talks),
         )
-        self.assertEqual(
-            tuple(item.title for item in document.teaching),
-            (
+        self.assertTrue(
+            {
                 "UoA Postgraduate Supervision experience",
                 "UoA Undergraduate Teaching experience",
-            ),
+            }.issubset(item.title for item in document.teaching),
         )
 
-        for publication in document.publications:
-            index = ROOT / publication.bundle_path / "index.md"
+        for bundle_path in EXPECTED_MIGRATED_BUNDLES:
+            index = ROOT / bundle_path / "index.md"
             metadata, _ = read_frontmatter(index)
             self.assertEqual(
                 metadata.get("cv_provenance"),
                 "migrated_legacy",
                 index,
             )
+
+    def test_baseline_validator_allows_additions_and_rejects_identity_loss(self):
+        validator = getattr(cv_data, "validate_cv_baseline", None)
+        self.assertTrue(callable(validator), "missing validate_cv_baseline")
+        document = load_cv_document(ROOT)
+        future_publication = replace(
+            document.publications[0],
+            bundle_path="content/publications/future-managed-publication",
+            title="Future managed publication",
+            doi="10.1000/future-managed-publication",
+        )
+        expanded_author = replace(
+            document.author,
+            interests=(*document.author.interests, "Future research interest"),
+            education=(
+                *document.author.education,
+                replace(
+                    document.author.education[0],
+                    degree="Future degree",
+                    institution="Future university",
+                    year=2026,
+                ),
+            ),
+        )
+        expanded = replace(
+            document,
+            author=expanded_author,
+            publications=(future_publication, *document.publications),
+            talks=(
+                replace(document.talks[0], title="Future invited talk"),
+                *document.talks,
+            ),
+            teaching=(
+                *document.teaching,
+                replace(document.teaching[0], title="Future teaching record"),
+            ),
+        )
+        validator(expanded)
+
+        missing_cases = {
+            "publication": replace(document, publications=document.publications[1:]),
+            "interest": replace(
+                document,
+                author=replace(
+                    document.author,
+                    interests=document.author.interests[1:],
+                ),
+            ),
+            "education": replace(
+                document,
+                author=replace(
+                    document.author,
+                    education=document.author.education[1:],
+                ),
+            ),
+            "talk": replace(document, talks=document.talks[1:]),
+            "teaching": replace(document, teaching=document.teaching[1:]),
+        }
+        for category, incomplete in missing_cases.items():
+            with self.subTest(category=category):
+                with self.assertRaisesRegex(ValueError, category):
+                    validator(incomplete)
 
 
 if __name__ == "__main__":

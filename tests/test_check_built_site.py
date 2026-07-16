@@ -1,10 +1,16 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from datetime import date
 import importlib.util
 import io
+import shutil
 import unittest
 
 from reportlab.pdfgen import canvas
+import yaml
+
+from scripts.cv_data import load_cv_document
+from scripts.cv_pdf import render_cv_pdf
 
 ROOT = Path(__file__).resolve().parents[1]
 MANDATORY_CV_SECTIONS = (
@@ -90,7 +96,7 @@ class BuiltSiteCheckTests(unittest.TestCase):
         self.write_valid_site()
 
         failures = checker.check_site(
-            self.public, "/research-website-preview/", self.content
+            self.public, "/research-website-preview/", ROOT / "content"
         )
 
         self.assertEqual(failures, [])
@@ -109,7 +115,7 @@ class BuiltSiteCheckTests(unittest.TestCase):
         (self.public / "uploads" / "sean-ma-cv.pdf").unlink()
 
         failures = checker.check_site(
-            self.public, "/research-website-preview/", self.content
+            self.public, "/research-website-preview/", ROOT / "content"
         )
 
         self.assertEqual(len(failures), 1)
@@ -123,7 +129,7 @@ class BuiltSiteCheckTests(unittest.TestCase):
         cv_path.write_bytes(b"not a pdf")
 
         failures = checker.check_site(
-            self.public, "/research-website-preview/", self.content
+            self.public, "/research-website-preview/", ROOT / "content"
         )
 
         self.assertEqual(len(failures), 1)
@@ -137,7 +143,7 @@ class BuiltSiteCheckTests(unittest.TestCase):
         cv_path.write_bytes(b"not a pdf" + b"x" * 11_000)
 
         failures = checker.check_site(
-            self.public, "/research-website-preview/", self.content
+            self.public, "/research-website-preview/", ROOT / "content"
         )
 
         self.assertEqual(len(failures), 1)
@@ -151,7 +157,7 @@ class BuiltSiteCheckTests(unittest.TestCase):
         cv_path.write_bytes(b"%PDF-1.7\n" + b"x" * 11_000 + b"\n%%EOF")
 
         failures = checker.check_site(
-            self.public, "/research-website-preview/", self.content
+            self.public, "/research-website-preview/", ROOT / "content"
         )
 
         self.assertEqual(len(failures), 1)
@@ -164,7 +170,7 @@ class BuiltSiteCheckTests(unittest.TestCase):
         self.write_valid_site(sections=MANDATORY_CV_SECTIONS[:-1])
 
         failures = checker.check_site(
-            self.public, "/research-website-preview/", self.content
+            self.public, "/research-website-preview/", ROOT / "content"
         )
 
         self.assertEqual(len(failures), 1)
@@ -177,11 +183,65 @@ class BuiltSiteCheckTests(unittest.TestCase):
         )
 
         failures = checker.check_site(
-            self.public, "/research-website-preview/", self.content
+            self.public, "/research-website-preview/", ROOT / "content"
         )
 
         self.assertEqual(len(failures), 1)
         self.assertIn("content manifest", failures[0])
+
+    def test_full_gate_accepts_valid_34th_managed_publication(self):
+        checker = load_checker()
+        shutil.copytree(ROOT / "data", self.root / "data")
+        shutil.copytree(ROOT / "content", self.content)
+        future = {
+            "title": "Future managed publication",
+            "authors": ["me", "Future Researcher"],
+            "date": "2026-07-17T00:00:00Z",
+            "draft": False,
+            "publication_types": ["article-journal"],
+            "publication": {"name": "Future Journal"},
+            "hugoblox": {
+                "ids": {"doi": "10.1000/future-managed-publication"}
+            },
+            "links": [
+                {
+                    "type": "source",
+                    "url": "https://doi.org/10.1000/future-managed-publication",
+                }
+            ],
+            "requires_correction": False,
+            "publication_importer": {"managed_citation": True},
+        }
+        future_index = (
+            self.content / "publications/future-managed-publication/index.md"
+        )
+        future_index.parent.mkdir(parents=True)
+        future_index.write_text(
+            "---\n"
+            + yaml.safe_dump(future, sort_keys=False)
+            + "---\n",
+            encoding="utf-8",
+        )
+        document = load_cv_document(self.root)
+        self.assertEqual(len(document.publications), 34)
+        self.public.mkdir(parents=True)
+        (self.public / "index.html").write_text(
+            "<html><title>Home</title></html>", encoding="utf-8"
+        )
+        render_cv_pdf(
+            document,
+            ROOT / "assets/media/authors/me.jpg",
+            self.public / "uploads/sean-ma-cv.pdf",
+            date(2026, 7, 17),
+        )
+
+        failures = checker.check_site(
+            self.public,
+            "/research-website-preview/",
+            self.content,
+        )
+
+        self.assertEqual(failures, [])
 
     def test_check_reports_missing_semantics_and_broken_internal_link(self):
         checker = load_checker()

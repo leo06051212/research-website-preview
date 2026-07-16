@@ -30,13 +30,75 @@ MANDATORY_CV_TEXT = (
     "Invited Talks & Presentations",
     "Teaching & Postgraduate Supervision",
 )
-INITIAL_CV_CONTENT_COUNTS = {
-    "publications": 33,
-    "interests": 4,
-    "education": 3,
-    "talks": 7,
-    "teaching": 2,
-}
+CV_BASELINE_PUBLICATION_BUNDLES = frozenset(
+    {
+        "content/publications/2018-10-18-optimized-layer-architecture-for-layered-ldpc-code-decoder",
+        "content/publications/2019-10-15-a-novel-data-packing-technique-for-qc-ldpc-decoder-architecture-appli",
+        "content/publications/2019-11-19-a-real-time-flexible-telecommunication-decoding-architecture-using-fp",
+        "content/publications/2019-12-09-soc-fpga-based-implementation-of-iris-recognition-enhanced-by-qc-ldpc",
+        "content/publications/2020-03-10-iris-recognition-system-implementation-improved-by-qc-ldpc-codes",
+        "content/publications/2020-10-03-a-novel-iris-verification-framework-using-machine-learning-algorithm-",
+        "content/publications/2020-10-13-an-iris-recognition-system-implementation-with-error-correction-capab",
+        "content/publications/2020-12-08-a-risc-v-soc-for-mobile-payment-based-on-visible-light-communication",
+        "content/publications/2021-10-12-a-dynamically-reconfigurable-qc-ldpc-implementation-for-iris-recognit",
+        "content/publications/2021-10-12-a-highly-integrated-risc-v-based-soc-for-on-board-unit-in-etc-system",
+        "content/publications/2021-10-12-cnn-accelerator-with-non-blocking-network-design",
+        "content/publications/2021-12-08-an-effective-multi-mode-iris-authentication-system-on-a-microprocesso",
+        "content/publications/2022-10-18-implementation-for-jscc-scheme-based-on-qc-ldpc-codes",
+        "content/publications/2024-01-30-joint-source-channel-coding-system-for-6g-communication-design-protot",
+        "content/publications/2024-02-19-early-stopped-technique-for-bch-decoding-algorithm-under-tolerant-fau",
+        "content/publications/2024-03-22-urban-aquatic-scene-expansion-for-semantic-segmentation-in-cityscapes",
+        "content/publications/2024-04-22-pqde-comprehensive-progressive-quantization-with-discretization-error",
+        "content/publications/2024-06-13-vit-lob-efficient-vision-transformer-for-stockprice-trend-prediction-",
+        "content/publications/2024-10-29-a-framework-for-mapping-convolutional-neural-network-onto-memristor-c",
+        "content/publications/2024-10-29-a-mobile-computing-friendly-stock-price-trend-prediction-model",
+        "content/publications/2024-10-29-an-edge-ai-system-based-on-fpga-platform-for-railway-fault-detection",
+        "content/publications/2024-10-29-mtst-a-multi-task-scheduling-transformer-accelerator-for-edge-computi",
+        "content/publications/2025-02-12-kernelvm-teaching-linux-kernel-programming-through-a-browser-based-vi",
+        "content/publications/2025-06-09-target-tracking-in-underwater-multi-sensor-systems-using-delayed-bear",
+        "content/publications/2025-06-30-a-novel-computing-paradigm-for-mobilenetv3-using-memristor",
+        "content/publications/2025-06-30-joint-post-training-pruning-and-power-of-two-quantization-for-efficie",
+        "content/publications/2025-06-30-lha-layer-wise-hardware-acceleration-of-progressive-quantizing-infere",
+        "content/publications/2025-07-17-lightfsa-a-lightweight-financial-sentiment-analysis-model",
+        "content/publications/2025-09-23-enhancing-synthesis-efficiency-in-hls-through-llm-based-automated-cod",
+        "content/publications/2025-09-23-fpga-based-real-time-image-tampering-detection-system-for-edge-comput",
+        "content/publications/2025-11-01-visually-meaningful-asymmetric-image-encryption-based-on-a-random-dev",
+        "content/publications/2025-12-15-a-review-of-fpga-driven-llm-acceleration",
+        "content/publications/2025-12-15-adaptive-gradual-quantization-with-a-custom-risc-v-simd-accelerator",
+    }
+)
+CV_BASELINE_INTERESTS = frozenset(
+    {
+        "FPGA acceleration",
+        "RISC-V customisation",
+        "High-level synthesis",
+        "Heterogeneous computing",
+    }
+)
+CV_BASELINE_EDUCATION = frozenset(
+    {
+        ("PhD in Computer Science", "The University of Auckland", 2023),
+        ("Master of Integrated Circuit Engineering", "Shanghai Jiao Tong University", 2016),
+        ("Bachelor of Communication Engineering", "Harbin Engineering University", 2010),
+    }
+)
+CV_BASELINE_TALK_TITLES = frozenset(
+    {
+        "2026 IEEE International Symposium on Circuits and Systems",
+        "Technical Talks of IEEE Consumer Technoligy Society - 19th Webinar",
+        "IEEE CASS Workshop: Circuit-Level Intelligence: From Secure Silicon to AI-Ready Systems",
+        "Interal Talk with staff in Computer Science, UoA",
+        "Journey to the “South”: Advancing Computing from Traditional Architectures to Emerging Technologies",
+        "Joint 6G-PHYSEC & INTERACT Workshop on 6G Technologies and PHY Layer Security",
+        "WebVM - an innovative approach to teaching OS concepts",
+    }
+)
+CV_BASELINE_TEACHING_TITLES = frozenset(
+    {
+        "UoA Postgraduate Supervision experience",
+        "UoA Undergraduate Teaching experience",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -122,6 +184,33 @@ class CvDocument:
     talks: tuple[CvTalk, ...]
     teaching: tuple[CvTeaching, ...]
     publication_reviews: tuple[PublicationReview, ...]
+
+
+def validate_cv_baseline(document: CvDocument) -> None:
+    actual = {
+        "publication": {item.bundle_path for item in document.publications},
+        "interest": set(document.author.interests),
+        "education": {
+            (item.degree, item.institution, item.year)
+            for item in document.author.education
+        },
+        "talk": {item.title for item in document.talks},
+        "teaching": {item.title for item in document.teaching},
+    }
+    baseline = {
+        "publication": CV_BASELINE_PUBLICATION_BUNDLES,
+        "interest": CV_BASELINE_INTERESTS,
+        "education": CV_BASELINE_EDUCATION,
+        "talk": CV_BASELINE_TALK_TITLES,
+        "teaching": CV_BASELINE_TEACHING_TITLES,
+    }
+    for category, required in baseline.items():
+        missing = required - actual[category]
+        if missing:
+            formatted = ", ".join(repr(item) for item in sorted(missing))
+            raise ValueError(
+                f"CV baseline {category} identities are missing: {formatted}"
+            )
 
 
 def cv_content_counts(document: CvDocument) -> dict[str, int]:
