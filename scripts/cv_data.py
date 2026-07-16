@@ -18,6 +18,25 @@ from scripts.publication_importer import (
 
 OWNER_ID = "me"
 OWNER_NAME = "Sean Longyu Ma"
+LEGACY_CV_PROVENANCE = "migrated_legacy"
+MANDATORY_CV_TEXT = (
+    OWNER_NAME,
+    "Academic CV",
+    "Academic Profile",
+    "Current Academic Appointment",
+    "Research Interests",
+    "Education",
+    "Publications",
+    "Invited Talks & Presentations",
+    "Teaching & Postgraduate Supervision",
+)
+INITIAL_CV_CONTENT_COUNTS = {
+    "publications": 33,
+    "interests": 4,
+    "education": 3,
+    "talks": 7,
+    "teaching": 2,
+}
 
 
 @dataclass(frozen=True)
@@ -103,6 +122,23 @@ class CvDocument:
     talks: tuple[CvTalk, ...]
     teaching: tuple[CvTeaching, ...]
     publication_reviews: tuple[PublicationReview, ...]
+
+
+def cv_content_counts(document: CvDocument) -> dict[str, int]:
+    return {
+        "publications": len(document.publications),
+        "interests": len(document.author.interests),
+        "education": len(document.author.education),
+        "talks": len(document.talks),
+        "teaching": len(document.teaching),
+    }
+
+
+def cv_content_manifest(counts: dict[str, int]) -> str:
+    ordered = ("publications", "interests", "education", "talks", "teaching")
+    return "Academic curriculum vitae | " + ";".join(
+        f"{name}={counts[name]}" for name in ordered
+    )
 
 
 def load_frontmatter_page(path: Path) -> tuple[dict[str, Any], str]:
@@ -214,10 +250,10 @@ def _load_author(path: Path) -> CvAuthor:
     )
 
     raw_links = loaded.get("links")
-    if not isinstance(raw_links, list) or any(
+    if not isinstance(raw_links, list) or not raw_links or any(
         not isinstance(item, dict) for item in raw_links
     ):
-        raise _field_error(path, "links", "must be a list of mappings")
+        raise _field_error(path, "links", "must be a non-empty list of mappings")
     links = tuple(
         CvLink(
             _required_string(item.get("label"), path, f"links[{index}].label"),
@@ -226,12 +262,14 @@ def _load_author(path: Path) -> CvAuthor:
         for index, item in enumerate(raw_links)
     )
 
-    interests = _string_tuple(loaded.get("interests"), path, "interests")
+    interests = _non_empty_string_tuple(loaded.get("interests"), path, "interests")
     raw_education = loaded.get("education")
-    if not isinstance(raw_education, list) or any(
+    if not isinstance(raw_education, list) or not raw_education or any(
         not isinstance(item, dict) for item in raw_education
     ):
-        raise _field_error(path, "education", "must be a list of mappings")
+        raise _field_error(
+            path, "education", "must be a non-empty list of mappings"
+        )
     education = []
     for index, item in enumerate(raw_education):
         end = item.get("end")
@@ -338,6 +376,47 @@ def _publication_values(
     return title, authors, published, publication_type, publication, venue, doi
 
 
+def _is_managed_publication(metadata: dict[str, Any], path: Path) -> bool:
+    has_legacy_marker = "cv_provenance" in metadata
+    has_importer_marker = "publication_importer" in metadata
+    if has_legacy_marker:
+        provenance = metadata["cv_provenance"]
+        if provenance != LEGACY_CV_PROVENANCE:
+            raise _field_error(
+                path,
+                "cv_provenance",
+                f"must equal {LEGACY_CV_PROVENANCE!r}",
+            )
+        if has_importer_marker:
+            raise _field_error(
+                path,
+                "cv_provenance",
+                "cannot be combined with publication_importer",
+            )
+        return False
+
+    if not has_importer_marker:
+        raise _field_error(
+            path,
+            "provenance",
+            "must declare cv_provenance or publication_importer",
+        )
+    marker = metadata["publication_importer"]
+    if not isinstance(marker, dict) or set(marker) != {"managed_citation"}:
+        raise _field_error(
+            path,
+            "publication_importer",
+            "must be a mapping containing only managed_citation: true",
+        )
+    if marker["managed_citation"] is not True:
+        raise _field_error(
+            path,
+            "publication_importer.managed_citation",
+            "must be the boolean true",
+        )
+    return True
+
+
 def _load_publications(
     root: Path,
 ) -> tuple[tuple[CvPublication, ...], tuple[PublicationReview, ...]]:
@@ -348,10 +427,7 @@ def _load_publications(
     for bundle, index in iter_publication_indexes(root):
         metadata, _ = read_frontmatter(index)
         bundle_path = bundle.relative_to(root).as_posix()
-        managed = (
-            isinstance(metadata.get("publication_importer"), dict)
-            and metadata["publication_importer"].get("managed_citation") is True
-        )
+        managed = _is_managed_publication(metadata, index)
         raw_draft = metadata.get("draft")
         raw_requires_correction = metadata.get("requires_correction")
         draft = raw_draft is True
@@ -470,7 +546,9 @@ def _content_pages(directory: Path, root: Path) -> tuple[Path, ...]:
             "content without links"
         )
     if not directory.exists():
-        return ()
+        raise ValueError(f"{directory}: required content directory is missing")
+    if not directory.is_dir():
+        raise ValueError(f"{directory}: required content directory is not a directory")
     resolved_directory = directory.resolve()
     if resolved_directory != directory or resolved_directory.parent != content_directory:
         raise ValueError(
@@ -520,6 +598,8 @@ def _load_talks(directory: Path, root: Path) -> tuple[CvTalk, ...]:
             )
         )
     talks.sort(key=lambda item: (item.date, item.title.casefold()), reverse=True)
+    if not talks:
+        raise ValueError(f"{directory}: must contain at least one talk record")
     return tuple(talks)
 
 
@@ -539,4 +619,6 @@ def _load_teaching(directory: Path, root: Path) -> tuple[CvTeaching, ...]:
             )
         )
     teaching.sort(key=lambda item: item.title.casefold())
+    if not teaching:
+        raise ValueError(f"{directory}: must contain at least one teaching record")
     return tuple(teaching)

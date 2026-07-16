@@ -14,6 +14,7 @@ summary: A RISC-V SoC (system on chip) based on visible light communication (VLC
   for mobile payment application is presented.
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

@@ -14,6 +14,7 @@ abstract: ''
 summary: Joint Souce-Channel Code based on QC-LDPC codes on the FPGA platform
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

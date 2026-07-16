@@ -26,6 +26,7 @@ abstract: Predicting stock price trends in High-frequency trading (HFT) demands 
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/ICASI60819.2024.10547868

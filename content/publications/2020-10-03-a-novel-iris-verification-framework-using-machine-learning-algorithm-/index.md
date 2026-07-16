@@ -15,6 +15,7 @@ summary: We propose a new iris verification framework for an embedded system whi
   uses IrisMatch-CNN as feature extraction and classification.
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

@@ -15,6 +15,7 @@ summary: Extracting and analyzing iris textures for biometric recognition has be
   extensively studied.
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

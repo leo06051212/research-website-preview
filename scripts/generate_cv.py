@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from scripts.cv_data import load_cv_document, write_publication_review
 from scripts.cv_pdf import render_cv_pdf
+
+
+AUCKLAND_TIME_ZONE = ZoneInfo("Pacific/Auckland")
+
+
+def default_generated_on(now: datetime | None = None) -> date:
+    if now is None:
+        return datetime.now(AUCKLAND_TIME_ZONE).date()
+    if now.tzinfo is None:
+        raise ValueError("Generation time must include a timezone")
+    return now.astimezone(AUCKLAND_TIME_ZONE).date()
 
 
 def main() -> int:
@@ -31,7 +43,7 @@ def main() -> int:
         document,
         portrait,
         output,
-        generated_on=args.generated_on or date.today(),
+        generated_on=args.generated_on or default_generated_on(),
     )
     print(
         f"CV_PAGES={result.page_count} CV_BYTES={result.byte_count} "

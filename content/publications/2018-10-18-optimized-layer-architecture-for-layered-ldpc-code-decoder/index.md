@@ -14,6 +14,7 @@ summary: 'We proposed an optimized BPU to perform all the operations of check no
   and variable nodes of a QC-LDPC decoder. '
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

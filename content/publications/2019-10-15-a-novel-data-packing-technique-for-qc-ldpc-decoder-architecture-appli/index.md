@@ -15,6 +15,7 @@ summary: This paper presents a data packing technique for Quasi-Cyclic LDPC code
   decoder applied to NAND flash controller.
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

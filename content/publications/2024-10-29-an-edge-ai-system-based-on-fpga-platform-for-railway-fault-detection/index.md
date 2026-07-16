@@ -26,6 +26,7 @@ abstract: As the demands for railway transportation safety increase, traditional
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/GCCE62371.2024.10760330

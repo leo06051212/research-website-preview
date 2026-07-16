@@ -16,6 +16,7 @@ summary: The paper proposes a method to reuse IEEE 802.11n LDPC codes onto an ir
   recognition system based on an embedded device.
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

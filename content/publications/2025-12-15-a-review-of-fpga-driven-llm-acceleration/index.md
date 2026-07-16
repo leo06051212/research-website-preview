@@ -31,6 +31,7 @@ abstract: 'This paper provides a brief review of FPGA-based acceleration strateg
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/MCSoC67473.2025.00018

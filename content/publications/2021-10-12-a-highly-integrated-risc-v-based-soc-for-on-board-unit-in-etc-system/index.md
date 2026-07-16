@@ -14,6 +14,7 @@ summary: A highly integrated system-on-chip for the on-board unit in the electro
   toll collection system is presented.
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

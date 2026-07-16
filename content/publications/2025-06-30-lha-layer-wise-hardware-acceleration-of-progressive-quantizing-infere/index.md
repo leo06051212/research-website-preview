@@ -27,6 +27,7 @@ abstract: As the need for real-time, low-power deep learning at the edge increas
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/IJCNN64981.2025.11229400

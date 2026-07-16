@@ -2,9 +2,20 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 import argparse
+import sys
 
 import yaml
 from pypdf import PdfReader
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.cv_data import (  # noqa: E402
+    INITIAL_CV_CONTENT_COUNTS,
+    MANDATORY_CV_TEXT,
+    cv_content_manifest,
+)
 
 
 class PageParser(HTMLParser):
@@ -94,9 +105,16 @@ def validate_cv(public_dir: Path) -> list[str]:
         if not reader.pages:
             raise ValueError("PDF has no pages")
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        for expected in ("Sean Longyu Ma", "Academic CV"):
+        for expected in MANDATORY_CV_TEXT:
             if expected not in text:
                 raise ValueError(f"PDF text is missing {expected!r}")
+        expected_manifest = cv_content_manifest(INITIAL_CV_CONTENT_COUNTS)
+        subject = str(reader.metadata.subject or "")
+        if subject != expected_manifest:
+            raise ValueError(
+                "PDF content manifest is invalid: "
+                f"expected {expected_manifest!r}, found {subject!r}"
+            )
     except Exception as error:
         return [f"Academic CV is invalid: {cv_path}: {error}"]
     return []

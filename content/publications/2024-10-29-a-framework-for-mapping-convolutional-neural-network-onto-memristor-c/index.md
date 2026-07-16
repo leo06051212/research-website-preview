@@ -25,6 +25,7 @@ abstract: The processing-in-memory architecture based on memristors has been wid
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/GCCE62371.2024.10760655

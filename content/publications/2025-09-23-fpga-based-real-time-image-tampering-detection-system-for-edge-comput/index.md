@@ -25,6 +25,7 @@ abstract: With the proliferation of sophisticated image manipulation techniques,
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/GCCE65946.2025.11274616

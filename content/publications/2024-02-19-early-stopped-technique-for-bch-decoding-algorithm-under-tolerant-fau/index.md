@@ -26,6 +26,7 @@ abstract: In this paper, a technique for the Berlekamp-Massey(BM) algorithm is p
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1007/978-981-97-3299-9_3

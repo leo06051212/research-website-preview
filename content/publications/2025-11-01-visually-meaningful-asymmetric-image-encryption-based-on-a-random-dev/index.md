@@ -34,6 +34,7 @@ abstract: Traditional image encryption methods usually generate noisy ciphertext
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

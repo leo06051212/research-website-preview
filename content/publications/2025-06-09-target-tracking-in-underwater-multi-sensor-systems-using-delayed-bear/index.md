@@ -30,6 +30,7 @@ abstract: In underwater multi-sensor systems for bearing-only tracking, propagat
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/LWC.2025.3577659

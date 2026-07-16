@@ -28,7 +28,14 @@ from reportlab.platypus import (
     Spacer,
 )
 
-from scripts.cv_data import CvDocument, OWNER_ID, OWNER_NAME
+from scripts.cv_data import (
+    CvDocument,
+    MANDATORY_CV_TEXT,
+    OWNER_ID,
+    OWNER_NAME,
+    cv_content_counts,
+    cv_content_manifest,
+)
 
 
 NAVY = colors.HexColor("#1F4B66")
@@ -37,6 +44,7 @@ MUTED = colors.HexColor("#526777")
 RAIL = colors.HexColor("#E5EDF2")
 WHITE = colors.white
 FULL_CONTENT_FRAME_HEIGHT = A4[1] - 30 * mm
+RAIL_CONTENT_BOTTOM = 14 * mm
 
 
 @dataclass(frozen=True)
@@ -81,20 +89,26 @@ def register_cv_fonts() -> None:
         pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
 
 
-def validate_pdf(path: Path) -> tuple[int, int]:
+def validate_pdf(path: Path, expected_manifest: str | None = None) -> tuple[int, int]:
     payload = path.read_bytes()
     if len(payload) < 10_000 or not payload.startswith(b"%PDF-"):
         raise ValueError(f"Generated CV is not a non-trivial PDF: {path}")
     reader = PdfReader(path)
     if not reader.pages:
         raise ValueError(f"Generated CV has no pages: {path}")
-    required = (OWNER_NAME, "Publications", "Academic CV")
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    missing = [value for value in required if value not in text]
+    missing = [value for value in MANDATORY_CV_TEXT if value not in text]
     if missing:
         raise ValueError(
             f"Generated CV is missing required text: {', '.join(missing)}"
         )
+    if expected_manifest is not None:
+        subject = str(reader.metadata.subject or "")
+        if subject != expected_manifest:
+            raise ValueError(
+                "Generated CV content manifest does not match the loaded document: "
+                f"expected {expected_manifest!r}, found {subject!r}"
+            )
     return len(reader.pages), len(payload)
 
 
@@ -109,6 +123,8 @@ def render_cv_pdf(
         raise ValueError(f"Portrait is missing: {portrait}")
     _validate_portrait(portrait)
     register_cv_fonts()
+    _validate_rail_capacity(document)
+    manifest = cv_content_manifest(cv_content_counts(document))
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     file_descriptor, temporary_name = tempfile.mkstemp(
@@ -119,8 +135,8 @@ def render_cv_pdf(
     os.close(file_descriptor)
     temporary = Path(temporary_name)
     try:
-        _build_document(document, portrait, temporary, generated_on)
-        page_count, byte_count = validate_pdf(temporary)
+        _build_document(document, portrait, temporary, generated_on, manifest)
+        page_count, byte_count = validate_pdf(temporary, manifest)
         os.replace(temporary, output)
         return PdfBuildResult(output, page_count, byte_count)
     finally:
@@ -284,6 +300,7 @@ def _build_document(
     portrait: Path,
     temporary: Path,
     generated_on: date,
+    manifest: str,
 ) -> None:
     page_width, page_height = A4
     footer_height = 14 * mm
@@ -329,7 +346,7 @@ def _build_document(
         ],
         title=f"{OWNER_NAME} - Academic CV",
         author=OWNER_NAME,
-        subject="Academic curriculum vitae",
+        subject=manifest,
     )
     styles = _styles()
     story = _story(document, styles)
@@ -362,11 +379,98 @@ def _draw_aspect_fill(canvas, portrait: Path, x: float, y: float, width: float, 
     canvas.restoreState()
 
 
-def _draw_paragraph(canvas, markup: str, style: ParagraphStyle, x: float, y: float, width: float) -> float:
-    paragraph = Paragraph(markup, style)
-    _, height = paragraph.wrap(width, A4[1])
-    paragraph.drawOn(canvas, x, y - height)
-    return y - height - style.spaceAfter
+@dataclass(frozen=True)
+class _RailBlock:
+    section: str
+    markup: str
+    style: ParagraphStyle
+    space_before: float = 0
+
+
+def _rail_blocks(
+    document: CvDocument, styles: dict[str, ParagraphStyle]
+) -> tuple[_RailBlock, ...]:
+    blocks = [
+        _RailBlock(
+            "Identity",
+            f'<font name="CvSans-Bold" size="11.5">{_markup(OWNER_NAME)}</font>',
+            styles["rail"],
+        )
+    ]
+    postnominals = ", ".join(document.author.postnominals)
+    if postnominals:
+        blocks.append(_RailBlock("Identity", _markup(postnominals), styles["rail"]))
+    blocks.extend(
+        (
+            _RailBlock(
+                "Appointment",
+                f"<b>{_markup(document.author.role)}</b>",
+                styles["rail"],
+            ),
+            _RailBlock(
+                "Appointment",
+                _link(document.author.affiliation, document.author.affiliation_url),
+                styles["rail"],
+            ),
+        )
+    )
+    blocks.extend(
+        _RailBlock("Profile links", _link(item.label, item.url), styles["rail"])
+        for item in document.author.links
+    )
+    blocks.append(
+        _RailBlock(
+            "Research Interests",
+            "Research Interests",
+            styles["rail_heading"],
+            2 * mm,
+        )
+    )
+    interests = "<br/>".join(
+        f"- {_markup(item)}" for item in document.author.interests
+    )
+    blocks.append(
+        _RailBlock("Research Interests", interests, styles["rail"])
+    )
+    blocks.append(_RailBlock("Education", "Education", styles["rail_heading"]))
+    blocks.extend(
+        _RailBlock(
+            "Education",
+            f"<b>{_markup(item.degree)}</b><br/>"
+            f"{_markup(item.institution)}, {_markup(item.year)}",
+            styles["rail"],
+        )
+        for item in document.author.education
+    )
+    return tuple(blocks)
+
+
+def _rail_layout(document: CvDocument) -> tuple[tuple[Paragraph, float], ...]:
+    styles = _styles()
+    inset = 7 * mm
+    portrait_height = 49 * mm
+    content_width = 52 * mm - 2 * inset
+    y = A4[1] - inset - portrait_height - 6 * mm
+    positioned = []
+    for block in _rail_blocks(document, styles):
+        y -= block.space_before
+        paragraph = Paragraph(block.markup, block.style)
+        _, height = paragraph.wrap(content_width, A4[1])
+        draw_y = y - height
+        end_y = draw_y - block.style.spaceAfter
+        if end_y < RAIL_CONTENT_BOTTOM:
+            raise ValueError(
+                "CV first-page rail overflows in "
+                f"{block.section}: content ends at {end_y / mm:.1f} mm, "
+                f"minimum is {RAIL_CONTENT_BOTTOM / mm:.1f} mm"
+            )
+        positioned.append((paragraph, draw_y))
+        y = end_y
+    return tuple(positioned)
+
+
+def _validate_rail_capacity(document: CvDocument) -> None:
+    _rail_layout(document)
 
 
 def _draw_rail(canvas, document: CvDocument, portrait: Path) -> None:
@@ -386,58 +490,8 @@ def _draw_rail(canvas, document: CvDocument, portrait: Path) -> None:
         content_width,
         portrait_height,
     )
-    styles = _styles()
-    y = page_height - inset - portrait_height - 6 * mm
-    y = _draw_paragraph(
-        canvas,
-        f'<font name="CvSans-Bold" size="11.5">{_markup(OWNER_NAME)}</font>',
-        styles["rail"],
-        inset,
-        y,
-        content_width,
-    )
-    postnominals = ", ".join(document.author.postnominals)
-    if postnominals:
-        y = _draw_paragraph(canvas, _markup(postnominals), styles["rail"], inset, y, content_width)
-    y = _draw_paragraph(
-        canvas,
-        f"<b>{_markup(document.author.role)}</b>",
-        styles["rail"],
-        inset,
-        y,
-        content_width,
-    )
-    y = _draw_paragraph(
-        canvas,
-        _link(document.author.affiliation, document.author.affiliation_url),
-        styles["rail"],
-        inset,
-        y,
-        content_width,
-    )
-    for item in document.author.links:
-        y = _draw_paragraph(
-            canvas,
-            _link(item.label, item.url),
-            styles["rail"],
-            inset,
-            y,
-            content_width,
-        )
-    y -= 2 * mm
-    y = _draw_paragraph(canvas, "Research Interests", styles["rail_heading"], inset, y, content_width)
-    interests = "<br/>".join(f"- {_markup(item)}" for item in document.author.interests)
-    y = _draw_paragraph(canvas, interests, styles["rail"], inset, y, content_width)
-    y = _draw_paragraph(canvas, "Education", styles["rail_heading"], inset, y, content_width)
-    for item in document.author.education:
-        y = _draw_paragraph(
-            canvas,
-            f"<b>{_markup(item.degree)}</b><br/>{_markup(item.institution)}, {_markup(item.year)}",
-            styles["rail"],
-            inset,
-            y,
-            content_width,
-        )
+    for paragraph, draw_y in _rail_layout(document):
+        paragraph.drawOn(canvas, inset, draw_y)
     canvas.restoreState()
 
 

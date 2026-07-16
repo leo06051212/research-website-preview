@@ -21,6 +21,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/1
 summary: This paper is about JSCC implementation for 6G.
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/ACCESS.2024.3360003

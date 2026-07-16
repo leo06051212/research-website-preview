@@ -22,6 +22,7 @@ abstract: In recent years, stock price trend prediction has been a hot topic in 
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/GCCE62371.2024.10760840

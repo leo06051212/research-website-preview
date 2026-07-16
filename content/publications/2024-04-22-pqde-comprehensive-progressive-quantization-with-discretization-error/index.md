@@ -34,6 +34,7 @@ abstract: In deep learning, quantization is employed to tackle deployment challe
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/AICAS59952.2024.10595949

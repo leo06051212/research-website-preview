@@ -30,6 +30,7 @@ abstract: Recent advancements in deep neural networks have created significant c
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/IJCNN64981.2025.11228510

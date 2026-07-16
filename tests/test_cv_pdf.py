@@ -153,6 +153,70 @@ class CvPdfTests(unittest.TestCase):
         first_page_text = PdfReader(output).pages[0].extract_text() or ""
         self.assertNotIn("Sean Longyu\nMa\nPhD", first_page_text)
 
+    def test_first_page_rail_overflow_fails_before_replacing_output(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self._write_minimal_repo(root)
+        document = load_cv_document(root)
+        document = replace(
+            document,
+            author=replace(
+                document.author,
+                interests=tuple(
+                    f"Extremely long research interest {index} with additional detail"
+                    for index in range(60)
+                ),
+            ),
+        )
+        portrait = root / "portrait.jpg"
+        Image.new("RGB", (600, 800), "#1d2939").save(portrait, "JPEG")
+        output = root / "static/uploads/sean-ma-cv.pdf"
+        output.parent.mkdir(parents=True)
+        output.write_bytes(b"%PDF-existing-candidate")
+
+        with self.assertRaisesRegex(
+            ValueError, r"first-page rail.*Research Interests"
+        ):
+            render_cv_pdf(
+                document,
+                portrait,
+                output,
+                generated_on=date(2026, 7, 17),
+            )
+
+        self.assertEqual(output.read_bytes(), b"%PDF-existing-candidate")
+
+    def test_first_page_rail_near_capacity_still_renders_complete_education(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        self._write_minimal_repo(root)
+        document = load_cv_document(root)
+        document = replace(
+            document,
+            author=replace(
+                document.author,
+                interests=tuple(
+                    f"Research interest {index} with concise supporting detail"
+                    for index in range(16)
+                ),
+            ),
+        )
+        portrait = root / "portrait.jpg"
+        Image.new("RGB", (600, 800), "#1d2939").save(portrait, "JPEG")
+        output = root / "near-capacity.pdf"
+
+        render_cv_pdf(
+            document,
+            portrait,
+            output,
+            generated_on=date(2026, 7, 17),
+        )
+
+        first_page_text = PdfReader(output).pages[0].extract_text() or ""
+        self.assertIn("PhD in Computer Science", first_page_text)
+
     def test_publication_entry_is_not_split_across_pages(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

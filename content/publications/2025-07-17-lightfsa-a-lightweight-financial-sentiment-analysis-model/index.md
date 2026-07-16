@@ -32,6 +32,7 @@ abstract: 'Financial sentiment analysis involves interpreting information from f
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1007/978-981-96-9914-8_28

@@ -16,6 +16,7 @@ summary: A real-time reconfigurable decoding architecture is introduced to allev
   high computational complexity and power consumption
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:

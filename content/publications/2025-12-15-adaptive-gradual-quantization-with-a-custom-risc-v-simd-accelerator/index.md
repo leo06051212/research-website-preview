@@ -27,6 +27,7 @@ abstract: 'Neural network quantization is essential for deploying deep learning 
 summary: ''
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids:
     doi: 10.1109/MCSoC67473.2025.00122

@@ -7,6 +7,19 @@ import unittest
 from reportlab.pdfgen import canvas
 
 ROOT = Path(__file__).resolve().parents[1]
+MANDATORY_CV_SECTIONS = (
+    "Academic Profile",
+    "Current Academic Appointment",
+    "Research Interests",
+    "Education",
+    "Publications",
+    "Invited Talks & Presentations",
+    "Teaching & Postgraduate Supervision",
+)
+VALID_CV_MANIFEST = (
+    "Academic curriculum vitae | publications=33;interests=4;education=3;"
+    "talks=7;teaching=2"
+)
 
 
 def load_checker():
@@ -30,7 +43,7 @@ class BuiltSiteCheckTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def write_valid_site(self):
+    def write_valid_site(self, *, sections=MANDATORY_CV_SECTIONS, subject=VALID_CV_MANIFEST):
         self.public.mkdir(parents=True)
         self.content.mkdir(parents=True)
         (self.public / "index.html").write_text(
@@ -40,9 +53,14 @@ class BuiltSiteCheckTests(unittest.TestCase):
         cv_path.parent.mkdir(parents=True)
         buffer = io.BytesIO()
         document = canvas.Canvas(buffer, pageCompression=0)
+        document.setSubject(subject)
         document.drawString(72, 760, "Sean Longyu Ma")
         document.drawString(72, 740, "Academic CV")
-        document.drawString(72, 720, "x" * 12_000)
+        y = 720
+        for section in sections:
+            document.drawString(72, y, section)
+            y -= 20
+        document.drawString(72, y, "x" * 12_000)
         document.save()
         cv_path.write_bytes(buffer.getvalue())
 
@@ -140,6 +158,30 @@ class BuiltSiteCheckTests(unittest.TestCase):
         self.assertIn(f"Academic CV is invalid: {cv_path}", failures[0])
         self.assertNotIn("too small", failures[0])
         self.assertNotIn("missing %PDF- signature", failures[0])
+
+    def test_check_rejects_cv_missing_a_mandatory_section(self):
+        checker = load_checker()
+        self.write_valid_site(sections=MANDATORY_CV_SECTIONS[:-1])
+
+        failures = checker.check_site(
+            self.public, "/research-website-preview/", self.content
+        )
+
+        self.assertEqual(len(failures), 1)
+        self.assertIn("Teaching & Postgraduate Supervision", failures[0])
+
+    def test_check_rejects_cv_with_wrong_real_content_counts(self):
+        checker = load_checker()
+        self.write_valid_site(
+            subject=VALID_CV_MANIFEST.replace("talks=7", "talks=6")
+        )
+
+        failures = checker.check_site(
+            self.public, "/research-website-preview/", self.content
+        )
+
+        self.assertEqual(len(failures), 1)
+        self.assertIn("content manifest", failures[0])
 
     def test_check_reports_missing_semantics_and_broken_internal_link(self):
         checker = load_checker()

@@ -14,6 +14,7 @@ summary: We designed a new hardware architecture that uses a non-blocking networ
   for accelerating the convolutional neural network (CNN)
 featured: false
 draft: true
+cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
 links:
