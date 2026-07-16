@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import os
+import re
+import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
 
-from scripts.cv_data import load_cv_document, write_publication_review
+from scripts.cv_data import (
+    PublicationReview,
+    load_cv_document,
+    write_publication_review,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,6 +97,17 @@ class CvDataTests(unittest.TestCase):
         (root / "content/events").mkdir(parents=True)
         (root / "content/teaching").mkdir(parents=True)
         return temporary, root
+
+    def replace_with_junction(self, path: Path, target: Path) -> None:
+        path.rmdir()
+        result = subprocess.run(
+            ["cmd.exe", "/c", "mklink", "/J", str(path), str(target)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.addCleanup(os.rmdir, path)
 
     def test_migrated_draft_is_included_but_managed_draft_is_excluded(self):
         temporary, root = self.make_repo()
@@ -186,6 +205,132 @@ class CvDataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Duplicate eligible publication DOI"):
             load_cv_document(root)
 
+    def test_migrated_publication_requires_at_least_one_author(self):
+        temporary, root = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        metadata = publication_record(
+            "Authorless Paper",
+            "10.1000/authorless",
+            draft=True,
+            managed=False,
+            requires_correction=False,
+        )
+        metadata["authors"] = []
+        index = root / "content/publications/authorless/index.md"
+        write_frontmatter(index, metadata)
+
+        with self.assertRaisesRegex(
+            ValueError, rf"{re.escape(str(index))}.*authors.*non-empty"
+        ):
+            load_cv_document(root)
+
+    def test_publication_type_requires_exactly_one_non_empty_string(self):
+        invalid_values = (
+            "article-journal",
+            [],
+            ["article-journal", "chapter"],
+            [42],
+            ["   "],
+        )
+        for publication_types in invalid_values:
+            with self.subTest(publication_types=publication_types):
+                temporary, root = self.make_repo()
+                self.addCleanup(temporary.cleanup)
+                metadata = publication_record(
+                    "Bad Type",
+                    "10.1000/bad-type",
+                    draft=True,
+                    managed=False,
+                    requires_correction=False,
+                )
+                metadata["publication_types"] = publication_types
+                index = root / "content/publications/bad-type/index.md"
+                write_frontmatter(index, metadata)
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    rf"{re.escape(str(index))}.*publication_types",
+                ):
+                    load_cv_document(root)
+
+    @unittest.skipUnless(os.name == "nt", "Windows junction regression")
+    def test_event_and_teaching_directory_junctions_cannot_escape_repository(self):
+        for section in ("events", "teaching"):
+            with self.subTest(section=section):
+                temporary, root = self.make_repo()
+                self.addCleanup(temporary.cleanup)
+                external = tempfile.TemporaryDirectory()
+                self.addCleanup(external.cleanup)
+                external_root = Path(external.name)
+                self.replace_with_junction(root / "content" / section, external_root)
+
+                with self.assertRaisesRegex(
+                    ValueError, rf"{section}.*inside.*repository"
+                ):
+                    load_cv_document(root)
+
+    @unittest.skipUnless(os.name == "nt", "Windows junction regression")
+    def test_dangling_event_directory_junction_is_not_treated_as_missing(self):
+        temporary, root = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        external_root = Path(tempfile.mkdtemp())
+        self.replace_with_junction(root / "content/events", external_root)
+        external_root.rmdir()
+
+        with self.assertRaisesRegex(ValueError, r"events.*inside.*repository"):
+            load_cv_document(root)
+
+    def test_event_file_link_cannot_escape_repository(self):
+        temporary, root = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        external_page = Path(external.name) / "outside.md"
+        write_frontmatter(
+            external_page,
+            {
+                "title": "Outside",
+                "event": "External",
+                "date": "2025-01-01T00:00:00Z",
+            },
+        )
+        link = root / "content/events/outside.md"
+        try:
+            link.symlink_to(external_page)
+        except OSError as error:
+            if os.name != "nt":
+                self.skipTest(f"File symlinks unavailable: {error}")
+            result = subprocess.run(
+                ["cmd.exe", "/c", "mklink", "/J", str(link), external.name],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.addCleanup(os.rmdir, link)
+
+        with self.assertRaisesRegex(ValueError, "Content page must resolve inside"):
+            load_cv_document(root)
+
+    def test_teaching_body_preserves_markdown_whitespace(self):
+        temporary, root = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        body = "    indented code\nHard line break  \n\n"
+        write_frontmatter(
+            root / "content/teaching/whitespace.md",
+            {
+                "title": "Whitespace",
+                "teaching_type": "Course",
+                "venue": "University",
+                "location": "Auckland",
+            },
+            body,
+        )
+
+        document = load_cv_document(root)
+
+        self.assertEqual(document.teaching[0].body, body)
+
     def test_review_report_contains_required_columns(self):
         temporary, root = self.make_repo()
         self.addCleanup(temporary.cleanup)
@@ -206,6 +351,42 @@ class CvDataTests(unittest.TestCase):
         self.assertIn("| Title | Date | Venue | DOI | Draft | Correction | Source | CV |", text)
         self.assertIn("Review Me", text)
         self.assertIn("10.1000/review", text)
+
+    def test_review_report_safely_encodes_every_data_cell_and_source_url(self):
+        temporary, root = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        document = load_cv_document(root)
+        review = PublicationReview(
+            bundle_path="content/publications/unsafe",
+            title="Title | slash \\ line\nnext [link](javascript:alert(1))",
+            date="Date | slash \\ line\nnext",
+            venue="Venue | slash \\ line\nnext",
+            doi="10.1000/a|b\\c\nnext",
+            draft=True,
+            requires_correction=True,
+            source_url="https://example.test/a_(b)|c\\d\nnext?q=<unsafe>",
+            included=False,
+            reason="Reason | slash \\ line\nnext",
+        )
+        output = root / "output/cv/publication-review.md"
+        write_publication_review(
+            replace(document, publication_reviews=(review,)), output
+        )
+        text = output.read_text(encoding="utf-8")
+
+        self.assertEqual(len(text.splitlines()), 5)
+        for prefix in ("Title", "Date", "Venue"):
+            self.assertIn(f"{prefix} \\| slash \\\\ line<br>next", text)
+        self.assertIn(
+            r"\[link\]\(javascript:alert\(1\)\)",
+            text,
+        )
+        self.assertIn("10.1000/a\\|b\\\\c<br>next", text)
+        self.assertIn("Exclude: Reason \\| slash \\\\ line<br>next", text)
+        self.assertIn(
+            "[source](<https://example.test/a_%28b%29%7Cc%5Cd%0Anext?q=%3Cunsafe%3E>)",
+            text,
+        )
 
     def test_real_repository_initial_cv_contains_all_33_migrated_publications(self):
         document = load_cv_document(ROOT)

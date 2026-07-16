@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import yaml
 
@@ -111,15 +113,18 @@ def load_frontmatter_page(path: Path) -> tuple[dict[str, Any], str]:
     metadata = yaml.safe_load(parts[1])
     if not isinstance(metadata, dict):
         raise ValueError(f"Front matter must be a mapping: {path}")
-    return metadata, parts[2].strip()
+    body = parts[2]
+    if body.startswith("\n"):
+        body = body[1:]
+    return metadata, body
 
 
 def load_cv_document(root: Path) -> CvDocument:
     root = root.resolve()
     author = _load_author(root / "data/authors/me.yaml")
     publications, reviews = _load_publications(root)
-    talks = _load_talks(root / "content/events")
-    teaching = _load_teaching(root / "content/teaching")
+    talks = _load_talks(root / "content/events", root)
+    teaching = _load_teaching(root / "content/teaching", root)
     return CvDocument(author, publications, talks, teaching, reviews)
 
 
@@ -132,16 +137,33 @@ def write_publication_review(document: CvDocument, output: Path) -> None:
         "|---|---|---|---|---:|---:|---|---|",
     ]
     for item in document.publication_reviews:
-        title = item.title.replace("|", "\\|")
-        venue = item.venue.replace("|", "\\|")
-        source = f"[source]({item.source_url})" if item.source_url else ""
+        source = _review_source_cell(item.source_url)
         decision = "Include" if item.included else f"Exclude: {item.reason}"
         rows.append(
-            f"| {title} | {item.date} | {venue} | {item.doi} | "
-            f"{str(item.draft).lower()} | "
-            f"{str(item.requires_correction).lower()} | {source} | {decision} |"
+            f"| {_review_cell(item.title)} | {_review_cell(item.date)} | "
+            f"{_review_cell(item.venue)} | {_review_cell(item.doi)} | "
+            f"{_review_cell(str(item.draft).lower())} | "
+            f"{_review_cell(str(item.requires_correction).lower())} | {source} | "
+            f"{_review_cell(decision)} |"
         )
     output.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def _review_cell(value: str, *, trusted_markdown: bool = False) -> str:
+    normalised = value.replace("\r\n", "\n").replace("\r", "\n")
+    escaped = normalised if trusted_markdown else html.escape(normalised, quote=True)
+    escaped = escaped.replace("\\", "\\\\").replace("|", "\\|")
+    if not trusted_markdown:
+        for character in "`*_[]{}()!":
+            escaped = escaped.replace(character, f"\\{character}")
+    return escaped.replace("\n", "<br>")
+
+
+def _review_source_cell(url: str) -> str:
+    if not url:
+        return ""
+    encoded = quote(url, safe="/:?#@!$&+,;=%")
+    return _review_cell(f"[source](<{encoded}>)", trusted_markdown=True)
 
 
 def _field_error(path: Path, field: str, message: str) -> ValueError:
@@ -160,6 +182,13 @@ def _string_tuple(value: Any, path: Path, field: str) -> tuple[str, ...]:
     ):
         raise _field_error(path, field, "must be a list of non-empty strings")
     return tuple(item.strip() for item in value)
+
+
+def _non_empty_string_tuple(value: Any, path: Path, field: str) -> tuple[str, ...]:
+    items = _string_tuple(value, path, field)
+    if not items:
+        raise _field_error(path, field, "must be a non-empty list of strings")
+    return items
 
 
 def _load_author(path: Path) -> CvAuthor:
@@ -287,14 +316,16 @@ def _publication_values(
     metadata: dict[str, Any], path: Path
 ) -> tuple[str, tuple[str, ...], datetime, str, dict[str, Any], str, str]:
     title = _required_string(metadata.get("title"), path, "title")
-    authors = _string_tuple(metadata.get("authors"), path, "authors")
+    authors = _non_empty_string_tuple(metadata.get("authors"), path, "authors")
     published = _parse_datetime(metadata.get("date"), path, "date")
-    publication_types = metadata.get("publication_types", [])
-    publication_type = ""
-    if isinstance(publication_types, list) and publication_types:
-        publication_type = _optional_string(
-            publication_types[0], path, "publication_types[0]"
+    publication_types = metadata.get("publication_types")
+    if not isinstance(publication_types, list) or len(publication_types) != 1:
+        raise _field_error(
+            path, "publication_types", "must contain exactly one non-empty string"
         )
+    publication_type = _required_string(
+        publication_types[0], path, "publication_types[0]"
+    )
     publication = metadata.get("publication")
     if not isinstance(publication, dict):
         raise _field_error(path, "publication", "must be a mapping")
@@ -421,15 +452,46 @@ def _load_publications(
     return tuple(publications), tuple(reviews)
 
 
-def _content_pages(directory: Path) -> tuple[Path, ...]:
+def _content_pages(directory: Path, root: Path) -> tuple[Path, ...]:
+    root = root.resolve()
+    content_directory = root / "content"
+    if (
+        content_directory.is_symlink()
+        or content_directory.is_junction()
+        or content_directory.resolve() != content_directory
+    ):
+        raise ValueError(
+            f"{content_directory}: content directory must resolve inside repository "
+            "without links"
+        )
+    if directory.is_symlink() or directory.is_junction():
+        raise ValueError(
+            f"{directory}: content directory must resolve inside repository "
+            "content without links"
+        )
     if not directory.exists():
         return ()
     resolved_directory = directory.resolve()
+    if resolved_directory != directory or resolved_directory.parent != content_directory:
+        raise ValueError(
+            f"{directory}: content directory must resolve inside repository "
+            "content without links"
+        )
     pages: list[Path] = []
     for candidate in sorted(directory.glob("*.md")):
         if candidate.name == "_index.md":
             continue
+        if candidate.is_symlink() or candidate.is_junction():
+            raise ValueError(
+                f"Content page must resolve inside repository content without links: "
+                f"{candidate}"
+            )
         resolved = candidate.resolve()
+        if resolved != candidate:
+            raise ValueError(
+                f"Content page must resolve inside repository content without links: "
+                f"{candidate}"
+            )
         try:
             resolved.relative_to(resolved_directory)
         except ValueError as error:
@@ -440,9 +502,9 @@ def _content_pages(directory: Path) -> tuple[Path, ...]:
     return tuple(pages)
 
 
-def _load_talks(directory: Path) -> tuple[CvTalk, ...]:
+def _load_talks(directory: Path, root: Path) -> tuple[CvTalk, ...]:
     talks = []
-    for path in _content_pages(directory):
+    for path in _content_pages(directory, root):
         metadata, _ = load_frontmatter_page(path)
         event_value = metadata.get("event")
         if not isinstance(event_value, str) or not event_value.strip():
@@ -461,9 +523,9 @@ def _load_talks(directory: Path) -> tuple[CvTalk, ...]:
     return tuple(talks)
 
 
-def _load_teaching(directory: Path) -> tuple[CvTeaching, ...]:
+def _load_teaching(directory: Path, root: Path) -> tuple[CvTeaching, ...]:
     teaching = []
-    for path in _content_pages(directory):
+    for path in _content_pages(directory, root):
         metadata, body = load_frontmatter_page(path)
         teaching.append(
             CvTeaching(
