@@ -1,1 +1,19 @@
 <meta name="robots" content="noindex,nofollow">
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const button = document.querySelector(
+      'button[aria-controls="collapse-main-navbar"]',
+    );
+    const menu = document.getElementById("collapse-main-navbar");
+    if (!button || !menu) return;
+
+    const updateExpandedState = () => {
+      button.setAttribute(
+        "aria-expanded",
+        String(!menu.classList.contains("hidden")),
+      );
+    };
+    button.addEventListener("click", updateExpandedState);
+    updateExpandedState();
+  });
+</script>

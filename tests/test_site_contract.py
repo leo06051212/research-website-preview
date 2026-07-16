@@ -34,6 +34,14 @@ class SiteContractTests(unittest.TestCase):
             ["About", "Research", "Publications", "Talks", "Teaching", "Blog", "CV"],
         )
 
+    def test_mobile_navigation_updates_aria_expanded(self):
+        hook = (
+            ROOT / "layouts/_partials/hooks/head-end/noindex.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn('button[aria-controls="collapse-main-navbar"]', hook)
+        self.assertIn('menu.classList.contains("hidden")', hook)
+        self.assertIn('button.addEventListener("click", updateExpandedState)', hook)
+
     def test_owner_contract(self):
         owner = self.load_yaml("data/authors/me.yaml")
         self.assertEqual(owner["name"]["display"], "Dr Sean Longyu Ma")
