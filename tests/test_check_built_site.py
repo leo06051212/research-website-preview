@@ -1,7 +1,10 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import importlib.util
+import io
 import unittest
+
+from reportlab.pdfgen import canvas
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,6 +21,31 @@ def load_checker():
 
 
 class BuiltSiteCheckTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.public = self.root / "public"
+        self.content = self.root / "content"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def write_valid_site(self):
+        self.public.mkdir(parents=True)
+        self.content.mkdir(parents=True)
+        (self.public / "index.html").write_text(
+            "<html><title>Home</title></html>", encoding="utf-8"
+        )
+        cv_path = self.public / "uploads" / "sean-ma-cv.pdf"
+        cv_path.parent.mkdir(parents=True)
+        buffer = io.BytesIO()
+        document = canvas.Canvas(buffer, pageCompression=0)
+        document.drawString(72, 760, "Sean Longyu Ma")
+        document.drawString(72, 740, "Academic CV")
+        document.drawString(72, 720, "x" * 12_000)
+        document.save()
+        cv_path.write_bytes(buffer.getvalue())
+
     def test_target_for_rejects_root_links_outside_preview(self):
         checker = load_checker()
         public = Path("public")
@@ -30,13 +58,46 @@ class BuiltSiteCheckTests(unittest.TestCase):
             public / "__outside_preview_path__" / "blog",
         )
         self.assertIsNone(checker.target_for(public, "https://example.org", "/research-website-preview/"))
-        self.assertIsNone(
+        self.assertEqual(
             checker.target_for(
                 public,
                 "/research-website-preview/uploads/sean-ma-cv.pdf",
                 "/research-website-preview/",
-            )
+            ),
+            public / "uploads" / "sean-ma-cv.pdf",
         )
+
+    def test_check_accepts_real_cv(self):
+        checker = load_checker()
+        self.write_valid_site()
+
+        failures = checker.check_site(
+            self.public, "/research-website-preview/", self.content
+        )
+
+        self.assertEqual(failures, [])
+
+    def test_check_rejects_missing_cv(self):
+        checker = load_checker()
+        self.write_valid_site()
+        (self.public / "uploads" / "sean-ma-cv.pdf").unlink()
+
+        failures = checker.check_site(
+            self.public, "/research-website-preview/", self.content
+        )
+
+        self.assertTrue(any("Academic CV is missing" in item for item in failures))
+
+    def test_check_rejects_malformed_cv(self):
+        checker = load_checker()
+        self.write_valid_site()
+        (self.public / "uploads" / "sean-ma-cv.pdf").write_bytes(b"not a pdf")
+
+        failures = checker.check_site(
+            self.public, "/research-website-preview/", self.content
+        )
+
+        self.assertTrue(any("Academic CV is invalid" in item for item in failures))
 
     def test_check_reports_missing_semantics_and_broken_internal_link(self):
         checker = load_checker()

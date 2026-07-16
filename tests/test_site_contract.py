@@ -292,6 +292,23 @@ class SiteContractTests(unittest.TestCase):
         self.assertIn("content/publications", sync_gate)
         self.assertIn("--content content", steps[check_site]["run"])
 
+    def test_build_generates_cv_before_hugo_and_artifact_upload(self):
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
+        )
+        steps = workflow["jobs"]["build"]["steps"]
+        names = [step.get("name", "") for step in steps]
+        generate_index = names.index("Generate Academic CV")
+        hugo_index = names.index("Build with Hugo")
+        upload_index = names.index("Upload artifact")
+        self.assertLess(generate_index, hugo_index)
+        self.assertLess(hugo_index, upload_index)
+        command = steps[generate_index]["run"]
+        self.assertIn("python -m scripts.generate_cv", command)
+        self.assertIn("--portrait assets/media/authors/me.jpg", command)
+        self.assertIn("--output static/uploads/sean-ma-cv.pdf", command)
+        self.assertIn("--review-report output/cv/publication-review.md", command)
+
     def test_workflow_hugo_fallback_matches_repository_pin(self):
         pin = self.load_yaml("hugoblox.yaml")["build"]["hugo_version"]
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")

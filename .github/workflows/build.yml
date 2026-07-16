@@ -97,6 +97,14 @@ jobs:
     - name: Validate managed publication content
       run: python scripts/check_publication_sync.py --repo-root .
 
+    - name: Generate Academic CV
+      run: >-
+        python -m scripts.generate_cv
+        --repo-root .
+        --portrait assets/media/authors/me.jpg
+        --output static/uploads/sean-ma-cv.pdf
+        --review-report output/cv/publication-review.md
+
     - name: Verify Tailwind CSS dependency
       if: hashFiles('package.json') != ''
       run: |

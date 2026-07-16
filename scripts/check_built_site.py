@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 import argparse
 
 import yaml
+from pypdf import PdfReader
 
 
 class PageParser(HTMLParser):
@@ -45,8 +46,6 @@ def target_for(public: Path, href: str, base_path: str) -> Path | None:
         path = path[len(base_path) :]
     elif path.startswith("/"):
         return public / "__outside_preview_path__" / path.lstrip("/")
-    if path.rstrip("/") == "uploads/sean-ma-cv.pdf":
-        return None
     candidate = public / path.lstrip("/")
     if candidate.suffix:
         return candidate
@@ -77,7 +76,33 @@ def _draft_output(public: Path, content: Path, source: Path) -> Path:
     return public / output_directory / "index.html"
 
 
-def check(public: Path, base_path: str, content: Path | None = None) -> list[str]:
+def validate_cv(public_dir: Path) -> list[str]:
+    cv_path = public_dir / "uploads" / "sean-ma-cv.pdf"
+    if not cv_path.exists():
+        return [f"Academic CV is missing: {cv_path}"]
+
+    try:
+        if not cv_path.is_file():
+            raise ValueError("path is not a file")
+        size = cv_path.stat().st_size
+        if size <= 10_000:
+            raise ValueError(f"file is too small ({size} bytes; expected more than 10000)")
+        with cv_path.open("rb") as stream:
+            if stream.read(5) != b"%PDF-":
+                raise ValueError("missing %PDF- signature")
+        reader = PdfReader(cv_path)
+        if not reader.pages:
+            raise ValueError("PDF has no pages")
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        for expected in ("Sean Longyu Ma", "Academic CV"):
+            if expected not in text:
+                raise ValueError(f"PDF text is missing {expected!r}")
+    except Exception as error:
+        return [f"Academic CV is invalid: {cv_path}: {error}"]
+    return []
+
+
+def check_site(public: Path, base_path: str, content: Path | None = None) -> list[str]:
     errors = []
     pages = list(public.rglob("*.html"))
     if not pages:
@@ -104,7 +129,12 @@ def check(public: Path, base_path: str, content: Path | None = None) -> list[str
                 output = _draft_output(public, content, source)
                 if output.exists():
                     errors.append(f"{output}: draft content was generated from {source}")
+    errors.extend(validate_cv(public))
     return errors
+
+
+def check(public: Path, base_path: str, content: Path | None = None) -> list[str]:
+    return check_site(public, base_path, content)
 
 
 if __name__ == "__main__":
@@ -113,7 +143,7 @@ if __name__ == "__main__":
     parser.add_argument("--base-path", default="/research-website-preview/")
     parser.add_argument("--content", type=Path)
     args = parser.parse_args()
-    failures = check(args.public, args.base_path, args.content)
+    failures = check_site(args.public, args.base_path, args.content)
     if failures:
         raise SystemExit("\n".join(failures))
     print(f"Checked {len(list(args.public.rglob('*.html')))} HTML pages")
