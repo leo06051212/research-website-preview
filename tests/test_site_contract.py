@@ -312,6 +312,16 @@ class SiteContractTests(unittest.TestCase):
         self.assertIn("content/publications", sync_gate)
         self.assertIn("--content content", steps[check_site]["run"])
 
+    def test_build_python_cache_uses_the_declared_requirements_file(self):
+        workflow = self.load_workflow(".github/workflows/build.yml")
+        steps = workflow["jobs"]["build"]["steps"]
+        setup_python = next(step for step in steps if step.get("name") == "Setup Python")
+
+        self.assertEqual(
+            setup_python["with"]["cache-dependency-path"],
+            "requirements-dev.txt",
+        )
+
     def test_build_generates_cv_before_hugo_and_artifact_upload(self):
         workflow = yaml.safe_load(
             (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
