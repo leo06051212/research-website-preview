@@ -100,6 +100,28 @@ class SiteContractTests(unittest.TestCase):
             },
         )
 
+    def test_research_page_contains_approved_official_profile_summary(self):
+        metadata = self.load_frontmatter(ROOT / "content/research/_index.md")
+        self.assertEqual(metadata.get("type"), "landing")
+        sections = metadata.get("sections")
+        self.assertIsInstance(sections, list)
+        self.assertEqual(len(sections), 1)
+        section = sections[0]
+        self.assertEqual(section.get("block"), "markdown")
+        self.assertEqual(section["content"]["title"], "Research")
+        text = section["content"]["text"]
+        for required in (
+            "FPGA-Based Computing and Acceleration",
+            "Design of domain-specific FPGA architectures for accelerating AI/ML inference, signal processing, and communication workloads",
+            "RISC-V Customisation and System-on-Chip Design",
+            "Custom RISC-V processors and SoC architectures incorporating specialised instructions",
+            "High-Level Synthesis and Microarchitecture Optimisation",
+            "Hardware optimisation through high-level synthesis, parallelism, pipelining, dataflow and memory-system design",
+            "Hardware–Software Co-Design for Edge and Heterogeneous Computing",
+            "Integrated algorithm and architecture design for efficient AI deployment on edge and heterogeneous platforms",
+        ):
+            self.assertIn(required, text)
+
     def test_canonical_postgraduate_supervision_record_retains_details(self):
         text = (
             ROOT / "content/teaching/uoa-cs-pg-teaching.md"
