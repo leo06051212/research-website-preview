@@ -55,12 +55,12 @@ class CvPdfTests(unittest.TestCase):
         write_frontmatter(
             root / "content/teaching/teaching.md",
             {
-                "title": "Postgraduate Supervision",
-                "teaching_type": "Postgraduate supervision",
+                "title": "Course Teaching",
+                "teaching_type": "Course",
                 "venue": "The University of Auckland",
                 "location": "Auckland, New Zealand",
             },
-            "Research student supervision.",
+            "Current course teaching.",
         )
 
     def _render_fixture(self, root: Path):
@@ -105,7 +105,7 @@ class CvPdfTests(unittest.TestCase):
             "Research Interests",
             "Education",
             "Invited Talks & Presentations",
-            "Teaching & Postgraduate Supervision",
+            "Teaching",
             "Generated 17 July 2026",
             "Safe <Research> & Development",
         ):
@@ -262,16 +262,41 @@ class CvPdfTests(unittest.TestCase):
         }
         self.assertTrue(any("STSong-Light" in font for font in fonts), fonts)
 
-    def test_canonical_teaching_markdown_controls_do_not_leak(self):
+    def test_real_pdf_contains_courses_but_no_supervision_or_student_details(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        output, _ = self._render_canonical(Path(temporary.name))
-        text = "\n".join(page.extract_text() or "" for page in PdfReader(output).pages)
-        self.assertIn("Doctor of Philosophy in Computer Science", text)
-        self.assertIn("Research on Neural Network Circuit", text)
-        self.assertNotIn("======", text)
-        self.assertNotIn("------", text)
-        self.assertNotIn(">Research", text)
+        output = Path(temporary.name) / "cv.pdf"
+        document = load_cv_document(ROOT)
+        render_cv_pdf(
+            document,
+            ROOT / "assets/media/authors/me.jpg",
+            output,
+            generated_on=date(2026, 7, 17),
+        )
+        reader = PdfReader(output)
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+
+        self.assertIn("Teaching", text)
+        self.assertNotIn("Teaching & Postgraduate Supervision", text)
+        _, teaching_heading, teaching_text = text.rpartition("\nTeaching\n")
+        self.assertEqual(teaching_heading, "\nTeaching\n")
+        for course in (
+            "COMPSCI 110 Introduction to Computer Systems",
+            "COMPSCI 315 Data Communications Technologies",
+            "COMPSCI 215 Data Communication",
+            "SOFTENG 370 Operating System",
+            "COMPSCI 340 Operating System",
+        ):
+            self.assertIn(course, teaching_text)
+        for private_text in (
+            "UoA Postgraduate Supervision experience",
+            "Neural Network Circuit and Computing-in-Memory Accelerator",
+            "Doctor of Philosophy in Computer Science",
+        ):
+            self.assertNotIn(private_text, text)
+        for student_name in ("Xu Chen", "Jiale Li"):
+            self.assertNotIn(student_name, teaching_text)
+        self.assertTrue(str(reader.metadata.subject).endswith("talks=7;teaching=1"))
 
     def test_overheight_teaching_entry_splits_and_preserves_all_text(self):
         temporary = tempfile.TemporaryDirectory()

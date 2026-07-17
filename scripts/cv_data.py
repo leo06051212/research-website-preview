@@ -28,7 +28,7 @@ MANDATORY_CV_TEXT = (
     "Education",
     "Publications",
     "Invited Talks & Presentations",
-    "Teaching & Postgraduate Supervision",
+    "Teaching",
 )
 CV_BASELINE_PUBLICATION_BUNDLES = frozenset(
     {

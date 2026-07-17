@@ -20,11 +20,11 @@ MANDATORY_CV_SECTIONS = (
     "Education",
     "Publications",
     "Invited Talks & Presentations",
-    "Teaching & Postgraduate Supervision",
+    "Teaching",
 )
 VALID_CV_MANIFEST = (
     "Academic curriculum vitae | publications=33;interests=4;education=3;"
-    "talks=7;teaching=2"
+    "talks=7;teaching=1"
 )
 
 
@@ -174,7 +174,7 @@ class BuiltSiteCheckTests(unittest.TestCase):
         )
 
         self.assertEqual(len(failures), 1)
-        self.assertIn("Teaching & Postgraduate Supervision", failures[0])
+        self.assertIn("Teaching", failures[0])
 
     def test_check_rejects_cv_with_wrong_real_content_counts(self):
         checker = load_checker()

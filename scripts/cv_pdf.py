@@ -592,6 +592,6 @@ def _story(document: CvDocument, styles: dict[str, ParagraphStyle]):
                 styles["entry"],
             )
         )
-    section("Teaching & Postgraduate Supervision", teaching_entries)
+    section("Teaching", teaching_entries)
     story.append(Spacer(1, 2 * mm))
     return story
