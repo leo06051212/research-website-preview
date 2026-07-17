@@ -80,6 +80,25 @@ class SiteContractTests(unittest.TestCase):
             self.assertIn(heading, text)
         self.assertIn("I welcome enquiries from prospective PhD", text)
 
+    def test_selected_publications_collection_filters_featured_records(self):
+        homepage = self.load_frontmatter(ROOT / "content/_index.md")
+        selected_sections = [
+            section
+            for section in homepage.get("sections", [])
+            if section.get("content", {}).get("title") == "Selected Publications"
+        ]
+        self.assertEqual(len(selected_sections), 1)
+        selected = selected_sections[0]
+        self.assertIn(selected.get("block"), {"collection", "content-collection"})
+        self.assertEqual(
+            selected["content"].get("filters"),
+            {
+                "folders": ["publications"],
+                "featured_only": True,
+            },
+        )
+        self.assertNotIn("count", selected["content"])
+
     def test_existing_publications_are_published_with_exact_featured_selection(self):
         indexes = sorted((ROOT / "content/publications").glob("*/index.md"))
         self.assertEqual(len(indexes), 33)

@@ -43,6 +43,51 @@ class GeneratedHomepageParser(HTMLParser):
             self.section_id = None
 
 
+class GeneratedSelectedPublicationsParser(HTMLParser):
+    SECTION_ID = "section-content-collection"
+    HEADING = "Selected Publications"
+
+    def __init__(self):
+        super().__init__()
+        self.section_depth = 0
+        self.in_selected_publications = False
+        self.has_expected_heading = False
+        self.current_section_has_expected_heading = False
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "section":
+            if self.in_selected_publications:
+                self.section_depth += 1
+            elif attributes.get("id") == self.SECTION_ID:
+                self.in_selected_publications = True
+                self.section_depth = 1
+                self.current_section_has_expected_heading = False
+        elif (
+            self.in_selected_publications
+            and self.current_section_has_expected_heading
+            and tag == "a"
+            and attributes.get("href")
+        ):
+            self.links.append(attributes["href"])
+
+    def handle_data(self, data):
+        if (
+            self.in_selected_publications
+            and " ".join(data.split()) == self.HEADING
+        ):
+            self.has_expected_heading = True
+            self.current_section_has_expected_heading = True
+
+    def handle_endtag(self, tag):
+        if tag == "section" and self.in_selected_publications:
+            self.section_depth -= 1
+            if self.section_depth == 0:
+                self.in_selected_publications = False
+                self.current_section_has_expected_heading = False
+
+
 class GeneratedContentParser(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -102,6 +147,7 @@ class GeneratedSiteTests(unittest.TestCase):
             index.parent.name
             for index in (ROOT / "content/publications").glob("*/index.md")
         }
+        self.assertEqual(len(expected_slugs), 33)
         listing_pages = [ROOT / "public/publications/index.html"] + sorted(
             (ROOT / "public/publications/page").glob("*/index.html")
         )
@@ -120,17 +166,28 @@ class GeneratedSiteTests(unittest.TestCase):
                 listed_slugs.add(match.group(1))
         self.assertEqual(listed_slugs, expected_slugs)
 
-        homepage_links = set(parse_generated_page(ROOT / "public/index.html").links)
-        for slug in {
+        expected_featured_slugs = {
             "2025-12-15-a-review-of-fpga-driven-llm-acceleration",
             "2025-12-15-adaptive-gradual-quantization-with-a-custom-risc-v-simd-accelerator",
             "2025-09-23-enhancing-synthesis-efficiency-in-hls-through-llm-based-automated-cod",
             "2025-06-30-lha-layer-wise-hardware-acceleration-of-progressive-quantizing-infere",
-        }:
-            self.assertTrue(
-                any(f"/publications/{slug}/" in link for link in homepage_links),
-                slug,
+        }
+        homepage = (ROOT / "public/index.html").read_text(encoding="utf-8")
+        selected_publications = GeneratedSelectedPublicationsParser()
+        selected_publications.feed(homepage)
+        self.assertTrue(
+            selected_publications.has_expected_heading,
+            "generated Selected Publications collection not found",
+        )
+        featured_slugs = set()
+        for link in selected_publications.links:
+            match = re.fullmatch(
+                r"/research-website-preview/publications/([^/]+)/",
+                link,
             )
+            if match:
+                featured_slugs.add(match.group(1))
+        self.assertEqual(featured_slugs, expected_featured_slugs)
 
     def test_research_page_renders_the_four_approved_themes(self):
         text = parse_generated_page(ROOT / "public/research/index.html").text
