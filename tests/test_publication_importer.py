@@ -87,7 +87,27 @@ def create_directory_link(link, target):
         )
 
 
+def remove_directory_link(link):
+    if link.is_symlink():
+        link.unlink()
+    elif link.exists():
+        os.rmdir(link)
+
+
 class PublicationImporterTests(unittest.TestCase):
+    def test_remove_directory_link_removes_platform_directory_link(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target"
+            target.mkdir()
+            link = root / "link"
+            create_directory_link(link, target)
+
+            remove_directory_link(link)
+
+            self.assertFalse(link.exists())
+            self.assertTrue(target.exists())
+
     def test_normalises_bare_doi_and_doi_url(self):
         bare = normalize_source("10.1109/MCSoC67473.2025.00122")
         url = normalize_source("https://doi.org/10.1109/MCSoC67473.2025.00122")
@@ -221,8 +241,7 @@ class PublicationImporterTests(unittest.TestCase):
                     external_index,
                 )
             finally:
-                if linked.exists():
-                    os.rmdir(linked)
+                remove_directory_link(linked)
 
     def test_duplicate_scan_ignores_external_index_link_with_junction_fallback(self):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -264,8 +283,8 @@ class PublicationImporterTests(unittest.TestCase):
                 self.assertEqual(result.status, "processed")
                 self.assertEqual(outside_index.read_text(encoding="utf-8"), external_index)
             finally:
-                if bundle_is_link and bundle.exists():
-                    os.rmdir(bundle)
+                if bundle_is_link:
+                    remove_directory_link(bundle)
 
     def test_duplicate_scan_skips_unreadable_non_utf8_and_malformed_indexes(self):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -557,7 +576,7 @@ class PublicationImporterTests(unittest.TestCase):
                     process_request(link, root, lambda _: self.fail("unexpected fetch"))
             finally:
                 if "junction" in locals() and junction.exists():
-                    os.rmdir(junction)
+                    remove_directory_link(junction)
 
             self.assertEqual(outside.read_text(encoding="utf-8"), original)
 
@@ -579,8 +598,7 @@ class PublicationImporterTests(unittest.TestCase):
                     process_request(request, root, lambda _: self.fail("unexpected fetch"))
                 self.assertEqual(request.read_text(encoding="utf-8"), original)
             finally:
-                if import_link.exists():
-                    os.rmdir(import_link)
+                remove_directory_link(import_link)
 
     def test_rejects_publication_directory_junction_outside_repository(self):
         with TemporaryDirectory() as temp:
@@ -603,8 +621,7 @@ class PublicationImporterTests(unittest.TestCase):
                     process_request(request, root, lambda _: self.fail("unexpected fetch"))
                 self.assertEqual(list(outside.iterdir()), [])
             finally:
-                if publication_link.exists():
-                    os.rmdir(publication_link)
+                remove_directory_link(publication_link)
 
     def test_citation_sync_rejects_child_bundle_junction_without_external_writes(self):
         with TemporaryDirectory() as temp:
@@ -635,8 +652,7 @@ class PublicationImporterTests(unittest.TestCase):
                 self.assertEqual(outside.joinpath("index.md").read_text(), index_text)
                 self.assertEqual(outside.joinpath("cite.bib").read_text(), cite_text)
             finally:
-                if linked.exists():
-                    os.rmdir(linked)
+                remove_directory_link(linked)
 
     def test_similar_doi_prefix_is_not_treated_as_duplicate(self):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
