@@ -15,7 +15,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/9
 summary: The paper proposes a method to reuse IEEE 802.11n LDPC codes onto an iris
   recognition system based on an embedded device.
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

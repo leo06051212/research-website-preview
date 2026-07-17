@@ -33,7 +33,7 @@ abstract: In deep learning, quantization is employed to tackle deployment challe
   its full-precision counterpart as evidenced by our ablation studies.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

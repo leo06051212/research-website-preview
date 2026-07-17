@@ -33,7 +33,7 @@ abstract: Traditional image encryption methods usually generate noisy ciphertext
   provides a new idea for fast and secure visually meaningful image encryption.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

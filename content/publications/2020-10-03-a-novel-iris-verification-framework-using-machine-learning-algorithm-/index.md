@@ -14,7 +14,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/9
 summary: We propose a new iris verification framework for an embedded system which
   uses IrisMatch-CNN as feature extraction and classification.
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

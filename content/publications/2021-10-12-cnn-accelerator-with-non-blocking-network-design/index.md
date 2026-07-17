@@ -13,7 +13,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/9
 summary: We designed a new hardware architecture that uses a non-blocking network
   for accelerating the convolutional neural network (CNN)
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

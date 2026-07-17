@@ -25,7 +25,7 @@ abstract: In this paper, a technique for the Berlekamp-Massey(BM) algorithm is p
   device validates the reliability of the proposed method.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

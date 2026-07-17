@@ -24,7 +24,7 @@ abstract: The processing-in-memory architecture based on memristors has been wid
   and reduces the risk of errors when manually constructing SPICE circuit netlists.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

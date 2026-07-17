@@ -25,8 +25,8 @@ abstract: 'Neural network quantization is essential for deploying deep learning 
   validate a significant inference speedup of over 8x, proving our synergistic approach
   delivers both high performance and efficiency.'
 summary: ''
-featured: false
-draft: true
+featured: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

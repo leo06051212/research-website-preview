@@ -25,8 +25,8 @@ abstract: As the need for real-time, low-power deep learning at the edge increas
   show that LHA significantly enhances resource efficiency while maintaining inference
   performance on edge devices.
 summary: ''
-featured: false
-draft: true
+featured: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

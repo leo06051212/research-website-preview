@@ -10,6 +10,15 @@ class SiteContractTests(unittest.TestCase):
     def load_yaml(self, relative_path: str):
         return yaml.safe_load((ROOT / relative_path).read_text(encoding="utf-8"))
 
+    def load_frontmatter(self, path: Path):
+        text = path.read_text(encoding="utf-8")
+        parts = text.split("---", 2)
+        self.assertEqual(parts[0], "", path)
+        self.assertEqual(len(parts), 3, path)
+        loaded = yaml.safe_load(parts[1])
+        self.assertIsInstance(loaded, dict, path)
+        return loaded
+
     def load_workflow(self, relative_path: str):
         path = ROOT / relative_path
         self.assertTrue(path.is_file(), f"missing workflow: {relative_path}")
@@ -70,6 +79,26 @@ class SiteContractTests(unittest.TestCase):
         ]:
             self.assertIn(heading, text)
         self.assertIn("I welcome enquiries from prospective PhD", text)
+
+    def test_existing_publications_are_published_with_exact_featured_selection(self):
+        indexes = sorted((ROOT / "content/publications").glob("*/index.md"))
+        self.assertEqual(len(indexes), 33)
+        featured = set()
+        for index in indexes:
+            metadata = self.load_frontmatter(index)
+            self.assertIs(metadata.get("draft"), False, index)
+            if metadata.get("featured") is True:
+                featured.add(index.parent.name)
+
+        self.assertEqual(
+            featured,
+            {
+                "2025-12-15-a-review-of-fpga-driven-llm-acceleration",
+                "2025-12-15-adaptive-gradual-quantization-with-a-custom-risc-v-simd-accelerator",
+                "2025-09-23-enhancing-synthesis-efficiency-in-hls-through-llm-based-automated-cod",
+                "2025-06-30-lha-layer-wise-hardware-acceleration-of-progressive-quantizing-infere",
+            },
+        )
 
     def test_canonical_postgraduate_supervision_record_retains_details(self):
         text = (

@@ -15,7 +15,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/8
 summary: A real-time reconfigurable decoding architecture is introduced to alleviate
   high computational complexity and power consumption
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

@@ -38,7 +38,7 @@ abstract: 'In urban environments, semantic segmentation using computer vision pl
   for Semantic Segmentation in Cityscapes. Urban Science. 2024; 8(2):23.'
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

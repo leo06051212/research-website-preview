@@ -29,7 +29,7 @@ abstract: In underwater multi-sensor systems for bearing-only tracking, propagat
   accuracy, significantly enhancing system performance.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

@@ -24,8 +24,8 @@ abstract: The integration of AI-based deep learning and advanced signal processi
   model. Furthermore, GEOMean run-time evaluation on a synthetic benchmark illustrates
   a performance improvement of 3%, indicating a substantial enhancement in HLS workflows.
 summary: ''
-featured: false
-draft: true
+featured: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

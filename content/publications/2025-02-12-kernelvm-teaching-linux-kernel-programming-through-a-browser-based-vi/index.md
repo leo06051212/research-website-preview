@@ -39,7 +39,7 @@ abstract: Providing students with hands-on experience in kernel programming with
   learning experience.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

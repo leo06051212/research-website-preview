@@ -20,7 +20,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/1
   BibTeX citation:'
 summary: This paper is about JSCC implementation for 6G.
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

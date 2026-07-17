@@ -25,7 +25,7 @@ abstract: As the demands for railway transportation safety increase, traditional
   on the GPU and CPU platform, respectively.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

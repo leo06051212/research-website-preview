@@ -14,7 +14,7 @@ publication:
 abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/9642996/)'
 summary: Multiple iris recognition algorithm implemented on an SoC-FPGA platform
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

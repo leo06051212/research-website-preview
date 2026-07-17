@@ -12,7 +12,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/8
 summary: We focus on an iris recognition system implementation with an error correction
   scheme, namely QC-LDPC
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

@@ -21,7 +21,7 @@ abstract: In recent years, stock price trend prediction has been a hot topic in 
   and over 90% reduction in memory consumption compared to state-of-the-art works.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

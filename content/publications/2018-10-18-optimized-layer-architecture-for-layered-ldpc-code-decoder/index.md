@@ -13,7 +13,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/8
 summary: 'We proposed an optimized BPU to perform all the operations of check nodes
   and variable nodes of a QC-LDPC decoder. '
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

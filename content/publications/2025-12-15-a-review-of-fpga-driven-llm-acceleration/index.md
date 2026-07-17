@@ -29,8 +29,8 @@ abstract: 'This paper provides a brief review of FPGA-based acceleration strateg
   Additionally, we have curated and organized the collected literature, which is available
   for public access and review on our github repository: https://github.com/FYL-Lib/FPGA.git.'
 summary: ''
-featured: false
-draft: true
+featured: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

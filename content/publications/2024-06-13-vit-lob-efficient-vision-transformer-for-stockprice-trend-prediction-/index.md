@@ -25,7 +25,7 @@ abstract: Predicting stock price trends in High-frequency trading (HFT) demands 
   methodologies.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

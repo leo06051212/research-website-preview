@@ -31,7 +31,7 @@ abstract: 'Financial sentiment analysis involves interpreting information from f
   compared to the baseline model, with only minimal impact on accuracy.'
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

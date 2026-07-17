@@ -13,7 +13,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/9
 summary: A highly integrated system-on-chip for the on-board unit in the electronic
   toll collection system is presented.
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}

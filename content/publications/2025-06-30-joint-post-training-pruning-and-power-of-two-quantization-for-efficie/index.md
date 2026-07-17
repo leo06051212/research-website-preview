@@ -29,7 +29,7 @@ abstract: Recent advancements in deep neural networks have created significant c
   accuracy.
 summary: ''
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids:

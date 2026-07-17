@@ -12,7 +12,7 @@ abstract: '[Download paper here](https://ieeexplore.ieee.org/abstract/document/9
 summary: An iris recognition system is implemented with certain LDPC codes which have
   the ability to correct intrinsic fuzziness.
 featured: false
-draft: true
+draft: false
 cv_provenance: migrated_legacy
 hugoblox:
   ids: {}
