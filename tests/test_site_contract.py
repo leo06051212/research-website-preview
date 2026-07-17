@@ -423,5 +423,22 @@ class SiteContractTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertIn(f'DEFAULT_VERSION="{pin}"', workflow)
 
+    def test_hugo_pin_avoids_vulnerable_link_builder_combination(self):
+        go_mod = (ROOT / "go.mod").read_text(encoding="utf-8")
+        vulnerable_module = (
+            "github.com/HugoBlox/kit/modules/blox "
+            "v0.0.0-20260527025321-61f41d3667f1"
+        )
+        if vulnerable_module not in go_mod:
+            self.skipTest("HugoBlox module no longer uses the vulnerable link builder")
+
+        pin = self.load_yaml("hugoblox.yaml")["build"]["hugo_version"]
+        version = tuple(int(part) for part in pin.split("."))
+        self.assertLess(
+            version,
+            (0, 162, 0),
+            "HugoBlox build_links pre-seeds a nil map under Hugo 0.162+",
+        )
+
 if __name__ == "__main__":
     unittest.main()
