@@ -30,19 +30,27 @@ Zongcheng Yue (2022- Now)
 ------
 >Computational Architecture for Intelligent Edge Computing
 
+Yulin Fu (2025–Present)
+------
+>Optimizing Large Language Models for Edge Devices: A Hardware-Software Co-Design Approach on FPGA
+
+Tingjiang Tan (2026–Present)
+------
+>Hardware/Software Co-Design for FPGA-Based AI Acceleration
+
 Brian Zhong (2019- 2025, Graduated)
 ------
 >A Comprehensive Study on RISC-V's Applications to AIoT Endpoint SoCs
 
 Master of Science (Research)
 ======
-Taojingnan Wang (2025-Now)
+Taojingnan Wang (2025–2026, Graduated)
 ------
-Ziyuan Zhang (2025-Now)
+Ziyuan Zhang (2025–2026, Graduated)
 ------
-Chenge Gao (2025-Now)
+Chenge Gao (2025–2026, Graduated)
 ------
-Chen Chen (2025-Now)
+Cheng Cheng (2025–2026, Graduated)
 ------
 
 Yulin Fu (2024- 2025, Graduated)

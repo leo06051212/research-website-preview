@@ -122,16 +122,25 @@ class SiteContractTests(unittest.TestCase):
         ):
             self.assertIn(required, text)
 
-    def test_canonical_postgraduate_supervision_record_retains_details(self):
+    def test_canonical_postgraduate_supervision_record_matches_owner_updates(self):
         text = (
             ROOT / "content/teaching/uoa-cs-pg-teaching.md"
         ).read_text(encoding="utf-8")
-        for detail in [
+        for detail in (
             "Postgraduate supervision",
             "Doctor of Philosophy in Computer Science",
-            "Xu Chen",
-        ]:
+            "Yulin Fu (2025–Present)",
+            "Optimizing Large Language Models for Edge Devices: A Hardware-Software Co-Design Approach on FPGA",
+            "Tingjiang Tan (2026–Present)",
+            "Hardware/Software Co-Design for FPGA-Based AI Acceleration",
+            "Taojingnan Wang (2025–2026, Graduated)",
+            "Ziyuan Zhang (2025–2026, Graduated)",
+            "Chenge Gao (2025–2026, Graduated)",
+            "Cheng Cheng (2025–2026, Graduated)",
+            "Yulin Fu (2024- 2025, Graduated)",
+        ):
             self.assertIn(detail, text)
+        self.assertNotIn("Chen Chen", text)
 
     def test_preview_is_not_indexed(self):
         hook = ROOT / "layouts/_partials/hooks/head-end/noindex.html"

@@ -319,7 +319,16 @@ class CvPdfTests(unittest.TestCase):
             "Doctor of Philosophy in Computer Science",
         ):
             self.assertNotIn(private_text, text)
-        for student_name in ("Xu Chen", "Jiale Li"):
+        for student_name in (
+            "Xu Chen",
+            "Jiale Li",
+            "Yulin Fu",
+            "Tingjiang Tan",
+            "Taojingnan Wang",
+            "Ziyuan Zhang",
+            "Chenge Gao",
+            "Cheng Cheng",
+        ):
             self.assertNotIn(student_name, teaching_text)
         self.assertTrue(str(reader.metadata.subject).endswith("talks=7;teaching=1"))
 
