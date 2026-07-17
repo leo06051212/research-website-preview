@@ -43,6 +43,32 @@ class GeneratedHomepageParser(HTMLParser):
             self.section_id = None
 
 
+class GeneratedContentParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.text_parts = []
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "a" and attributes.get("href"):
+            self.links.append(attributes["href"])
+
+    def handle_data(self, data):
+        if data.strip():
+            self.text_parts.append(data.strip())
+
+    @property
+    def text(self):
+        return " ".join(" ".join(self.text_parts).split())
+
+
+def parse_generated_page(path: Path) -> GeneratedContentParser:
+    parser = GeneratedContentParser()
+    parser.feed(path.read_text(encoding="utf-8"))
+    return parser
+
+
 class GeneratedSiteTests(unittest.TestCase):
     def test_cv_cta_uses_interface_font(self):
         homepage = (ROOT / "public/index.html").read_text(encoding="utf-8")
@@ -70,6 +96,65 @@ class GeneratedSiteTests(unittest.TestCase):
         }
         self.assertIn(selector, rules)
         self.assertIn("font-family:var(--sean-interface-font)", rules[selector])
+
+    def test_publications_listing_contains_all_local_records_and_homepage_features(self):
+        expected_slugs = {
+            index.parent.name
+            for index in (ROOT / "content/publications").glob("*/index.md")
+        }
+        listing_pages = [ROOT / "public/publications/index.html"] + sorted(
+            (ROOT / "public/publications/page").glob("*/index.html")
+        )
+        listing_links = {
+            link
+            for page in listing_pages
+            for link in parse_generated_page(page).links
+        }
+        listed_slugs = set()
+        for link in listing_links:
+            match = re.fullmatch(
+                r"/research-website-preview/publications/([^/]+)/",
+                link,
+            )
+            if match:
+                listed_slugs.add(match.group(1))
+        self.assertEqual(listed_slugs, expected_slugs)
+
+        homepage_links = set(parse_generated_page(ROOT / "public/index.html").links)
+        for slug in {
+            "2025-12-15-a-review-of-fpga-driven-llm-acceleration",
+            "2025-12-15-adaptive-gradual-quantization-with-a-custom-risc-v-simd-accelerator",
+            "2025-09-23-enhancing-synthesis-efficiency-in-hls-through-llm-based-automated-cod",
+            "2025-06-30-lha-layer-wise-hardware-acceleration-of-progressive-quantizing-infere",
+        }:
+            self.assertTrue(
+                any(f"/publications/{slug}/" in link for link in homepage_links),
+                slug,
+            )
+
+    def test_research_page_renders_the_four_approved_themes(self):
+        text = parse_generated_page(ROOT / "public/research/index.html").text
+        for heading in (
+            "FPGA-Based Computing and Acceleration",
+            "RISC-V Customisation and System-on-Chip Design",
+            "High-Level Synthesis and Microarchitecture Optimisation",
+            "Hardware–Software Co-Design for Edge and Heterogeneous Computing",
+        ):
+            self.assertIn(heading, text)
+
+    def test_supervision_page_renders_current_and_completed_students(self):
+        page = ROOT / "public/teaching/uoa-cs-pg-teaching/index.html"
+        text = parse_generated_page(page).text
+        for detail in (
+            "Yulin Fu (2025–Present)",
+            "Tingjiang Tan (2026–Present)",
+            "Taojingnan Wang (2025–2026, Graduated)",
+            "Ziyuan Zhang (2025–2026, Graduated)",
+            "Chenge Gao (2025–2026, Graduated)",
+            "Cheng Cheng (2025–2026, Graduated)",
+        ):
+            self.assertIn(detail, text)
+        self.assertNotIn("Chen Chen", text)
 
 
 if __name__ == "__main__":
