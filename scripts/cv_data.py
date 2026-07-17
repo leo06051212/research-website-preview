@@ -30,6 +30,9 @@ MANDATORY_CV_TEXT = (
     "Invited Talks & Presentations",
     "Teaching",
 )
+FORBIDDEN_CV_TEXT = (
+    "Teaching & Postgraduate Supervision",
+)
 CV_BASELINE_PUBLICATION_BUNDLES = frozenset(
     {
         "content/publications/2018-10-18-optimized-layer-architecture-for-layered-ldpc-code-decoder",

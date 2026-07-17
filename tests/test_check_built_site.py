@@ -176,6 +176,26 @@ class BuiltSiteCheckTests(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertIn("Teaching", failures[0])
 
+    def test_validate_cv_and_full_gate_reject_obsolete_teaching_heading(self):
+        checker = load_checker()
+        self.write_valid_site(
+            sections=(
+                *MANDATORY_CV_SECTIONS[:-1],
+                "Teaching & Postgraduate Supervision",
+            )
+        )
+
+        direct_failures = checker.validate_cv(self.public, ROOT / "content")
+        full_failures = checker.check_site(
+            self.public, "/research-website-preview/", ROOT / "content"
+        )
+
+        for failures in (direct_failures, full_failures):
+            with self.subTest(failures=failures):
+                self.assertEqual(len(failures), 1)
+                self.assertIn("forbidden", failures[0])
+                self.assertIn("Teaching & Postgraduate Supervision", failures[0])
+
     def test_check_rejects_cv_with_wrong_real_content_counts(self):
         checker = load_checker()
         self.write_valid_site(

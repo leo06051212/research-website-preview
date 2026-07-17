@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.cv_data import (  # noqa: E402
+    FORBIDDEN_CV_TEXT,
     MANDATORY_CV_TEXT,
     cv_content_manifest,
     cv_content_counts,
@@ -107,6 +108,9 @@ def validate_cv(public_dir: Path, content_dir: Path | None = None) -> list[str]:
         if not reader.pages:
             raise ValueError("PDF has no pages")
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        for forbidden in FORBIDDEN_CV_TEXT:
+            if forbidden in text:
+                raise ValueError(f"PDF text contains forbidden text {forbidden!r}")
         for expected in MANDATORY_CV_TEXT:
             if expected not in text:
                 raise ValueError(f"PDF text is missing {expected!r}")

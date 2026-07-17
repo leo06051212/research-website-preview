@@ -30,6 +30,7 @@ from reportlab.platypus import (
 
 from scripts.cv_data import (
     CvDocument,
+    FORBIDDEN_CV_TEXT,
     MANDATORY_CV_TEXT,
     OWNER_ID,
     OWNER_NAME,
@@ -97,6 +98,11 @@ def validate_pdf(path: Path, expected_manifest: str | None = None) -> tuple[int,
     if not reader.pages:
         raise ValueError(f"Generated CV has no pages: {path}")
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    forbidden = [value for value in FORBIDDEN_CV_TEXT if value in text]
+    if forbidden:
+        raise ValueError(
+            f"Generated CV contains forbidden text: {', '.join(forbidden)}"
+        )
     missing = [value for value in MANDATORY_CV_TEXT if value not in text]
     if missing:
         raise ValueError(

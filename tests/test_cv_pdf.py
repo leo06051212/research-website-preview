@@ -8,10 +8,11 @@ import unittest
 
 from PIL import Image
 from pypdf import PdfReader
+from reportlab.pdfgen import canvas
 import yaml
 
-from scripts.cv_data import CvTeaching, load_cv_document
-from scripts.cv_pdf import render_cv_pdf
+from scripts.cv_data import CvTeaching, MANDATORY_CV_TEXT, load_cv_document
+from scripts.cv_pdf import render_cv_pdf, validate_pdf
 from tests.test_cv_data import author_record, publication_record, write_frontmatter
 
 
@@ -115,6 +116,30 @@ class CvPdfTests(unittest.TestCase):
         self.assertEqual(reader.metadata.author, "Sean Longyu Ma")
         self.assertEqual(result.page_count, len(reader.pages))
         self.assertGreater(result.byte_count, 10_000)
+
+    def test_validate_pdf_rejects_obsolete_teaching_supervision_heading(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        output = Path(temporary.name) / "obsolete-heading.pdf"
+        document = canvas.Canvas(str(output), pageCompression=0)
+        y = 800
+        for value in MANDATORY_CV_TEXT:
+            rendered = (
+                "Teaching & Postgraduate Supervision"
+                if value == "Teaching"
+                else value
+            )
+            document.drawString(40, y, rendered)
+            y -= 20
+        document.drawString(40, y, "Current undergraduate course teaching details")
+        document.drawString(40, y - 20, "x" * 12_000)
+        document.save()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "forbidden.*Teaching & Postgraduate Supervision",
+        ):
+            validate_pdf(output)
 
     def test_pdf_contains_doi_and_profile_link_annotations(self):
         temporary = tempfile.TemporaryDirectory()
