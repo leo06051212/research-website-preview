@@ -95,10 +95,10 @@ CV_BASELINE_TALK_TITLES = frozenset(
 )
 CV_BASELINE_TEACHING_TITLES = frozenset(
     {
-        "UoA Postgraduate Supervision experience",
         "UoA Undergraduate Teaching experience",
     }
 )
+CV_EXCLUDED_TEACHING_TYPES = frozenset({"postgraduate supervision"})
 
 
 @dataclass(frozen=True)
@@ -696,12 +696,15 @@ def _load_teaching(directory: Path, root: Path) -> tuple[CvTeaching, ...]:
     teaching = []
     for path in _content_pages(directory, root):
         metadata, body = load_frontmatter_page(path)
+        teaching_type = _required_string(
+            metadata.get("teaching_type"), path, "teaching_type"
+        )
+        if teaching_type.casefold() in CV_EXCLUDED_TEACHING_TYPES:
+            continue
         teaching.append(
             CvTeaching(
                 title=_required_string(metadata.get("title"), path, "title"),
-                teaching_type=_required_string(
-                    metadata.get("teaching_type"), path, "teaching_type"
-                ),
+                teaching_type=teaching_type,
                 venue=_optional_string(metadata.get("venue"), path, "venue"),
                 location=_optional_string(metadata.get("location"), path, "location"),
                 body=body,

@@ -453,6 +453,26 @@ class CvDataTests(unittest.TestCase):
         teaching = next(item for item in document.teaching if item.title == "Whitespace")
         self.assertEqual(teaching.body, body)
 
+    def test_postgraduate_supervision_is_excluded_case_insensitively(self):
+        temporary, root = self.make_repo()
+        self.addCleanup(temporary.cleanup)
+        write_frontmatter(
+            root / "content/teaching/supervision.md",
+            {
+                "title": "Postgraduate Supervision",
+                "teaching_type": "POSTGRADUATE SUPERVISION",
+                "venue": "University",
+                "location": "Auckland",
+            },
+            "Sensitive supervision details.",
+        )
+
+        document = load_cv_document(root)
+
+        self.assertEqual(
+            [item.title for item in document.teaching], ["Z Baseline Teaching"]
+        )
+
     def test_required_author_collections_cannot_be_empty(self):
         for field in ("links", "interests", "education"):
             with self.subTest(field=field):
@@ -544,7 +564,17 @@ class CvDataTests(unittest.TestCase):
             text,
         )
 
-    def test_real_repository_initial_cv_contains_all_33_migrated_publications(self):
+    def test_real_repository_cv_excludes_supervision_and_retains_course_teaching(self):
+        postgraduate_path = ROOT / "content/teaching/uoa-cs-pg-teaching.md"
+        undergraduate_path = ROOT / "content/teaching/uoa-cs-ug-teaching.md"
+        postgraduate, postgraduate_body = read_frontmatter(postgraduate_path)
+        undergraduate, undergraduate_body = read_frontmatter(undergraduate_path)
+        self.assertIs(postgraduate.get("draft"), False)
+        self.assertIs(undergraduate.get("draft"), False)
+        self.assertEqual(postgraduate.get("teaching_type"), "Postgraduate supervision")
+        self.assertIn("Doctor of Philosophy in Computer Science", postgraduate_body)
+        self.assertIn("Xu Chen", postgraduate_body)
+
         document = load_cv_document(ROOT)
         self.assertTrue(
             EXPECTED_MIGRATED_BUNDLES.issubset(
@@ -580,12 +610,19 @@ class CvDataTests(unittest.TestCase):
                 "WebVM - an innovative approach to teaching OS concepts",
             }.issubset(item.title for item in document.talks),
         )
-        self.assertTrue(
-            {
-                "UoA Postgraduate Supervision experience",
-                "UoA Undergraduate Teaching experience",
-            }.issubset(item.title for item in document.teaching),
+        self.assertEqual(
+            [item.title for item in document.teaching],
+            ["UoA Undergraduate Teaching experience"],
         )
+        for course_name in [
+            "COMPSCI 110",
+            "COMPSCI 315",
+            "COMPSCI 215",
+            "SOFTENG 370",
+            "COMPSCI 340",
+        ]:
+            self.assertIn(course_name, undergraduate_body)
+            self.assertIn(course_name, document.teaching[0].body)
 
         for bundle_path in EXPECTED_MIGRATED_BUNDLES:
             index = ROOT / bundle_path / "index.md"
@@ -629,7 +666,11 @@ class CvDataTests(unittest.TestCase):
             ),
             teaching=(
                 *document.teaching,
-                replace(document.teaching[0], title="Future teaching record"),
+                replace(
+                    document.teaching[0],
+                    title="Future eligible course teaching record",
+                    teaching_type="Future course",
+                ),
             ),
         )
         validator(expanded)

@@ -6,7 +6,7 @@ authors:
 - me
 tags:
 - Teaching
-draft: true
+draft: false
 teaching_type: Postgraduate supervision
 venue: The University of Auckland, School of Computer Science
 location: Auckland, New Zealand

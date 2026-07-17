@@ -6,7 +6,7 @@ authors:
 - me
 tags:
 - Teaching
-draft: true
+draft: false
 teaching_type: Undergraduate course
 venue: The University of Auckland, School of Computer Science
 location: Auckland, New Zealand

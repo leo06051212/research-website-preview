@@ -69,6 +69,18 @@ class SiteContractTests(unittest.TestCase):
             "Prospective Students",
         ]:
             self.assertIn(heading, text)
+        self.assertIn("I welcome enquiries from prospective PhD", text)
+
+    def test_canonical_postgraduate_supervision_record_retains_details(self):
+        text = (
+            ROOT / "content/teaching/uoa-cs-pg-teaching.md"
+        ).read_text(encoding="utf-8")
+        for detail in [
+            "Postgraduate supervision",
+            "Doctor of Philosophy in Computer Science",
+            "Xu Chen",
+        ]:
+            self.assertIn(detail, text)
 
     def test_preview_is_not_indexed(self):
         hook = ROOT / "layouts/_partials/hooks/head-end/noindex.html"
