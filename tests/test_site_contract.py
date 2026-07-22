@@ -336,6 +336,10 @@ class SiteContractTests(unittest.TestCase):
         import_job = workflow["jobs"]["import"]
         self.assertEqual(import_job["permissions"], {"contents": "write"})
         steps = {step["name"]: step for step in import_job["steps"] if "name" in step}
+        self.assertEqual(
+            steps["Setup Python"]["with"].get("cache-dependency-path"),
+            "requirements-dev.txt",
+        )
         importer = steps["Import pending requests and synchronise reviewed publications"]
         self.assertEqual(importer["continue-on-error"], "true")
         self.assertEqual(importer["env"], {"IEEE_API_KEY": "${{ secrets.IEEE_API_KEY }}"})
