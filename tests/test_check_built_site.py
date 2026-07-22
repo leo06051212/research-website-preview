@@ -91,6 +91,23 @@ class BuiltSiteCheckTests(unittest.TestCase):
             public / "uploads" / "sean-ma-cv.pdf",
         )
 
+    def test_target_for_accepts_root_links_for_root_deployment(self):
+        checker = load_checker()
+        public = Path("public")
+
+        self.assertEqual(
+            checker.target_for(public, "/", "/"),
+            public / "index.html",
+        )
+        self.assertEqual(
+            checker.target_for(public, "/blog/", "/"),
+            public / "blog" / "index.html",
+        )
+        self.assertEqual(
+            checker.target_for(public, "/uploads/sean-ma-cv.pdf", "/"),
+            public / "uploads" / "sean-ma-cv.pdf",
+        )
+
     def test_check_accepts_real_cv(self):
         checker = load_checker()
         self.write_valid_site()

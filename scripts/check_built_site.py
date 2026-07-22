@@ -54,10 +54,12 @@ def target_for(public: Path, href: str, base_path: str) -> Path | None:
     parsed = urlparse(href)
     if parsed.scheme or parsed.netloc or href.startswith(("mailto:", "#")):
         return None
-    base_path = f"/{base_path.strip('/')}/"
+    base_segment = base_path.strip("/")
     path = parsed.path
-    if path.startswith(base_path):
-        path = path[len(base_path) :]
+    if not base_segment:
+        path = path.lstrip("/")
+    elif path.startswith(f"/{base_segment}/"):
+        path = path[len(base_segment) + 2 :]
     elif path.startswith("/"):
         return public / "__outside_preview_path__" / path.lstrip("/")
     candidate = public / path.lstrip("/")
