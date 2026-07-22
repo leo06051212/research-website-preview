@@ -6,7 +6,7 @@
 # Website name (set in params.yaml under hugoblox.branding.name)
 title: 'Dr Sean Longyu Ma'
 # Website URL
-baseURL: 'https://leo06051212.github.io/research-website-preview/'
+baseURL: 'https://leo06051212.github.io/'
 
 ############################
 ## LANGUAGE
@@ -38,7 +38,7 @@ summaryLength: 30
 pagination:
   pagerSize: 10
 enableEmoji: true
-enableRobotsTXT: false
+enableRobotsTXT: true
 footnotereturnlinkcontents: <sup>^</sup>
 ignoreFiles: [".ipynb_checkpoints$", "\\.Rmd$", "\\.Rmarkdown$", "_cache$"]
 disableAliases: true

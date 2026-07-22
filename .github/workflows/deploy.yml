@@ -1,9 +1,9 @@
 name: Deploy website to GitHub Pages
 
 on:
-  # Trigger the workflow every time you push to the `main` branch
+  # Trigger the workflow every time you push to the production `master` branch
   push:
-    branches: ['main']
+    branches: ['master']
     paths-ignore:
       - 'data/publication-imports/**'
       - 'content/publications/**'

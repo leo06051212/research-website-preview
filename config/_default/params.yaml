@@ -48,6 +48,6 @@ hugoblox:
       style: ieee
   repository:
     enable: true
-    url: "https://github.com/leo06051212/research-website-preview"
-    branch: main
+    url: "https://github.com/leo06051212/leo06051212.github.io"
+    branch: master
     content_dir: content

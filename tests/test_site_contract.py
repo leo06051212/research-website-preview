@@ -27,13 +27,22 @@ class SiteContractTests(unittest.TestCase):
             Loader=yaml.BaseLoader,
         )
 
-    def test_preview_url_and_language(self):
+    def test_production_url_repository_and_language(self):
         config = self.load_yaml("config/_default/hugo.yaml")
         self.assertEqual(
             config["baseURL"],
-            "https://leo06051212.github.io/research-website-preview/",
+            "https://leo06051212.github.io/",
         )
+        self.assertIs(config["enableRobotsTXT"], True)
         self.assertEqual(config["defaultContentLanguage"], "en")
+
+        params = self.load_yaml("config/_default/params.yaml")
+        repository = params["hugoblox"]["repository"]
+        self.assertEqual(
+            repository["url"],
+            "https://github.com/leo06051212/leo06051212.github.io",
+        )
+        self.assertEqual(repository["branch"], "master")
 
     def test_navigation_contract(self):
         menus = self.load_yaml("config/_default/menus.yaml")
@@ -161,9 +170,12 @@ class SiteContractTests(unittest.TestCase):
             self.assertIn(detail, text)
         self.assertNotIn("Chen Chen", text)
 
-    def test_preview_is_not_indexed(self):
+    def test_production_is_indexable(self):
         hook = ROOT / "layouts/_partials/hooks/head-end/noindex.html"
-        self.assertIn('content="noindex,nofollow"', hook.read_text(encoding="utf-8"))
+        self.assertNotIn(
+            'content="noindex,nofollow"',
+            hook.read_text(encoding="utf-8"),
+        )
 
     def test_editorial_typography_contract(self):
         params = self.load_yaml("config/_default/params.yaml")
@@ -263,7 +275,7 @@ class SiteContractTests(unittest.TestCase):
         self.assertEqual(profile_fields, {"role", "bio", "interests"})
 
         self.assertEqual(cms["media"]["input"], "static/uploads")
-        self.assertEqual(cms["media"]["output"], "/research-website-preview/uploads")
+        self.assertEqual(cms["media"]["output"], "/uploads")
         self.assertIs(cms.get("settings", {}).get("content", {}).get("merge"), True)
 
         def cms_fields(value):
@@ -345,12 +357,13 @@ class SiteContractTests(unittest.TestCase):
         self.assertNotIn("secrets", dispatch)
         dispatch_step = dispatch["steps"][0]
         self.assertIn(
-            'gh workflow run deploy.yml --repo "${{ github.repository }}" --ref main',
+            'gh workflow run deploy.yml --repo "${{ github.repository }}" --ref master',
             dispatch_step["run"],
         )
 
     def test_deploy_defers_publication_changes_to_import_validation(self):
         workflow = self.load_workflow(".github/workflows/deploy.yml")
+        self.assertEqual(workflow["on"]["push"]["branches"], ["master"])
         self.assertIn("paths-ignore", workflow["on"]["push"])
         ignored = workflow["on"]["push"]["paths-ignore"]
         self.assertIn("data/publication-imports/**", ignored)
@@ -358,6 +371,11 @@ class SiteContractTests(unittest.TestCase):
 
     def test_build_validates_managed_content_before_build_and_output_after_build(self):
         workflow = self.load_workflow(".github/workflows/build.yml")
+        self.assertEqual(workflow["on"]["pull_request"]["branches"], ["master"])
+        self.assertEqual(
+            workflow["on"]["push"]["branches"],
+            ["agent/production-release"],
+        )
         steps = workflow["jobs"]["build"]["steps"]
         names = [step.get("name") for step in steps]
         for required_name in [
@@ -388,6 +406,14 @@ class SiteContractTests(unittest.TestCase):
         )
         self.assertIn("--porcelain", sync_gate)
         self.assertIn("--untracked-files=all", sync_gate)
+        self.assertIn(
+            "hugo --minify --baseURL \"https://leo06051212.github.io/\"",
+            steps[build_hugo]["run"],
+        )
+        self.assertEqual(
+            steps[check_site]["run"],
+            "python scripts/check_built_site.py public --base-path / --content content",
+        )
         self.assertIn("content/publications", sync_gate)
         self.assertIn("--content content", steps[check_site]["run"])
 

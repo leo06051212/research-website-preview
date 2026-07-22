@@ -4,7 +4,7 @@ settings:
 
 media:
   input: static/uploads
-  output: /research-website-preview/uploads
+  output: /uploads
 
 content:
   - name: publication_imports

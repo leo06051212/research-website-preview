@@ -127,7 +127,7 @@ class GeneratedSiteTests(unittest.TestCase):
 
         self.assertIsNotNone(parser.custom_css_href, "generated custom CSS not linked")
         css_path = ROOT / "public" / parser.custom_css_href.removeprefix(
-            "/research-website-preview/"
+            "/"
         )
         css = css_path.read_text(encoding="utf-8")
         selector = (
@@ -159,7 +159,7 @@ class GeneratedSiteTests(unittest.TestCase):
         listed_slugs = set()
         for link in listing_links:
             match = re.fullmatch(
-                r"/research-website-preview/publications/([^/]+)/",
+                r"/publications/([^/]+)/",
                 link,
             )
             if match:
@@ -182,7 +182,7 @@ class GeneratedSiteTests(unittest.TestCase):
         featured_slugs = set()
         for link in selected_publications.links:
             match = re.fullmatch(
-                r"/research-website-preview/publications/([^/]+)/",
+                r"/publications/([^/]+)/",
                 link,
             )
             if match:

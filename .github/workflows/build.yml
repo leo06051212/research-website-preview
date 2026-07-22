@@ -6,7 +6,10 @@ env:
 on:
   # Standalone trigger for PR validation
   pull_request:
-    branches: ['main']
+    branches: ['master']
+  # Validate the isolated production candidate without deploying it.
+  push:
+    branches: ['agent/production-release']
   # Reusable workflow trigger - called by deploy.yml
   workflow_call:
     outputs:
@@ -153,7 +156,7 @@ jobs:
         HUGO_BLOX_LICENSE: ${{ secrets.HUGO_BLOX_LICENSE }}
       run: |
         echo "Hugo Cache Dir: $(hugo config | grep cachedir)"
-        hugo --minify --baseURL "${{ steps.pages.outputs.base_url }}/"
+        hugo --minify --baseURL "https://leo06051212.github.io/"
 
     - name: Generate Pagefind search index (if applicable)
       run: |
@@ -166,7 +169,7 @@ jobs:
       run: python -m unittest discover -s tests -v
 
     - name: Check generated site
-      run: python scripts/check_built_site.py public --base-path /research-website-preview/ --content content
+      run: python scripts/check_built_site.py public --base-path / --content content
 
     - name: Upload artifact
       id: upload
